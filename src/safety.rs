@@ -95,7 +95,7 @@ fn platform_protected_roots() -> Vec<PathBuf> {
         "ProgramW6432",
     ]
     .iter()
-    .filter_map(|name| std::env::var_os(name))
+    .filter_map(std::env::var_os)
     .map(PathBuf::from)
     .collect()
 }

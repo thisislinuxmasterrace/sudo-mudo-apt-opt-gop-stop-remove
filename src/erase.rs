@@ -1,11 +1,37 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Seek, SeekFrom, Write};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use rand::RngCore;
 
+#[cfg(not(windows))]
+use std::fs::OpenOptions;
+
+#[cfg(windows)]
+use crate::platform::windows;
+#[cfg(windows)]
+use crate::prompt;
+
 /// size of the buffer used for each write, in bytes.
 const BUFFER_SIZE: usize = 1024 * 1024;
+
+/// shown before a raw volume write; this path bypasses the filesystem entirely.
+#[cfg(windows)]
+const RAW_VOLUME_WARNING: &str = "raw volume write bypasses the filesystem: it can corrupt the volume \
+    if the file changes during the operation, and data cached by other programs may survive";
+
+/// settings for one erase run.
+pub struct Options {
+    pub passes: u32,
+    pub verbose: bool,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub force: bool,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub kill_holders: bool,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub raw_volume: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pattern {
@@ -41,7 +67,7 @@ fn pattern_for_pass(pass: u32, passes: u32) -> Pattern {
 ///
 /// symbolic links are removed without being followed, so their targets are never touched.
 /// directories are erased depth-first; the first failure stops the walk of that directory.
-pub fn erase_path(path: &Path, passes: u32, verbose: bool) -> io::Result<()> {
+pub fn erase_path(path: &Path, opts: &Options) -> io::Result<()> {
     let file_type = fs::symlink_metadata(path)?.file_type();
 
     if file_type.is_symlink() {
@@ -49,10 +75,10 @@ pub fn erase_path(path: &Path, passes: u32, verbose: bool) -> io::Result<()> {
             .or_else(|file_err| fs::remove_dir(path).map_err(|_| file_err));
     }
     if file_type.is_dir() {
-        return erase_dir(path, passes, verbose);
+        return erase_dir(path, opts);
     }
     if file_type.is_file() {
-        return erase_file(path, passes, verbose);
+        return erase_file(path, opts);
     }
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
@@ -60,7 +86,7 @@ pub fn erase_path(path: &Path, passes: u32, verbose: bool) -> io::Result<()> {
     ))
 }
 
-fn erase_dir(path: &Path, passes: u32, verbose: bool) -> io::Result<()> {
+fn erase_dir(path: &Path, opts: &Options) -> io::Result<()> {
     make_writable(path, true)?;
 
     // collect entries first so the directory is not modified while it is being iterated.
@@ -68,35 +94,183 @@ fn erase_dir(path: &Path, passes: u32, verbose: bool) -> io::Result<()> {
         .map(|entry| entry.map(|entry| entry.path()))
         .collect::<io::Result<_>>()?;
     for entry in &entries {
-        erase_path(entry, passes, verbose)?;
+        erase_path(entry, opts)?;
     }
 
-    if verbose {
+    if opts.verbose {
         eprintln!("  removing directory {}", path.display());
     }
     unlink_with_random_name(path, true)
 }
 
-/// overwrites the file's contents `passes` times, then deletes it.
+/// overwrites the file's contents, then deletes it.
 ///
 /// if deletion fails after the overwrite, the contents are already destroyed
 /// but the file itself remains.
-fn erase_file(path: &Path, passes: u32, verbose: bool) -> io::Result<()> {
+fn erase_file(path: &Path, opts: &Options) -> io::Result<()> {
     make_writable(path, false)?;
     let len = fs::metadata(path)?.len();
 
-    let mut file = OpenOptions::new().write(true).open(path)?;
-    for pass in 0..passes {
-        let pattern = pattern_for_pass(pass, passes);
-        if verbose {
-            eprintln!("  pass {}/{passes}: {}", pass + 1, pattern.name());
+    match open_for_overwrite(path) {
+        Ok(mut file) => {
+            let whole = 0..len;
+            overwrite(&mut file, std::slice::from_ref(&whole), opts)?;
+            drop(file);
+            remove_entry(path)
         }
-        overwrite_pass(&mut file, len, pattern)?;
+        Err(err) if is_locked(&err) => erase_locked(path, len, opts, err),
+        Err(err) => Err(err),
+    }
+}
+
+/// handles a file that another process holds open. the original error is returned
+/// unchanged on platforms without lock handling.
+#[cfg(not(windows))]
+fn erase_locked(_path: &Path, _len: u64, _opts: &Options, err: io::Error) -> io::Result<()> {
+    Err(err)
+}
+
+#[cfg(windows)]
+fn erase_locked(path: &Path, len: u64, opts: &Options, err: io::Error) -> io::Result<()> {
+    let holders = windows::holders(path).unwrap_or_default();
+    for holder in &holders {
+        eprintln!(
+            "{}: locked by {} (pid {})",
+            path.display(),
+            holder.name,
+            holder.pid
+        );
+    }
+
+    if opts.kill_holders && !holders.is_empty() {
+        if !opts.force && !prompt::ask("close these processes to unlock the file?") {
+            return Err(io::Error::other("skipped, file is still locked"));
+        }
+        windows::close_holders(path)?;
+
+        match open_for_overwrite(path) {
+            Ok(mut file) => {
+                let whole = 0..len;
+                overwrite(&mut file, std::slice::from_ref(&whole), opts)?;
+                drop(file);
+                return remove_entry(path);
+            }
+            Err(retry_err) => {
+                eprintln!(
+                    "{}: still locked after closing holders: {retry_err}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    if opts.raw_volume {
+        eprintln!("warning: {RAW_VOLUME_WARNING}");
+        if !prompt::ask("continue with raw volume write?") {
+            return Err(io::Error::other("aborted, file is still locked"));
+        }
+        let layout = windows::physical_layout(path)?;
+        let ranges: Vec<Range<u64>> = layout
+            .ranges
+            .iter()
+            .map(|range| range.offset..range.offset + range.len)
+            .collect();
+        let mut volume = windows::open_volume_for_write(&layout.volume)?;
+        overwrite(&mut volume, &ranges, opts)?;
+        drop(volume);
+        return remove_entry(path);
+    }
+
+    Err(io::Error::other(format!(
+        "{err}; use --kill-holders or --raw-volume to erase it anyway"
+    )))
+}
+
+#[cfg(windows)]
+fn open_for_overwrite(path: &Path) -> io::Result<File> {
+    windows::open_for_erase(path)
+}
+
+#[cfg(not(windows))]
+fn open_for_overwrite(path: &Path) -> io::Result<File> {
+    OpenOptions::new().write(true).open(path)
+}
+
+/// sharing violation, lock violation, or access denied (which windows also returns
+/// for delete-pending files).
+#[cfg(windows)]
+fn is_locked(err: &io::Error) -> bool {
+    matches!(err.raw_os_error(), Some(5 | 32 | 33))
+}
+
+#[cfg(not(windows))]
+fn is_locked(_err: &io::Error) -> bool {
+    false
+}
+
+/// removes a file whose contents are already overwritten.
+#[cfg(not(windows))]
+fn remove_entry(path: &Path) -> io::Result<()> {
+    unlink_with_random_name(path, false)
+}
+
+/// windows: posix delete first (removes the name even while other handles are open),
+/// then rename and delete, then, after asking, deletion at the next reboot.
+#[cfg(windows)]
+fn remove_entry(path: &Path) -> io::Result<()> {
+    if let Ok(handle) = windows::open_for_delete(path)
+        && windows::posix_delete(&handle).is_ok()
+    {
+        return Ok(());
+    }
+    if unlink_with_random_name(path, false).is_ok() {
+        return Ok(());
+    }
+
+    if !prompt::ask(
+        "file is still in use and cannot be deleted now (contents are already erased). schedule deletion at next reboot?",
+    ) {
+        return Err(io::Error::other(
+            "kept, contents are erased but the file remains",
+        ));
+    }
+    windows::delete_on_reboot(path)
+}
+
+fn overwrite(file: &mut File, ranges: &[Range<u64>], opts: &Options) -> io::Result<()> {
+    for pass in 0..opts.passes {
+        let pattern = pattern_for_pass(pass, opts.passes);
+        if opts.verbose {
+            eprintln!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
+        }
+        for range in ranges {
+            overwrite_range(file, range, pattern)?;
+        }
         file.sync_all()?;
     }
-    drop(file);
+    Ok(())
+}
 
-    unlink_with_random_name(path, false)
+fn overwrite_range(file: &mut File, range: &Range<u64>, pattern: Pattern) -> io::Result<()> {
+    file.seek(SeekFrom::Start(range.start))?;
+
+    let mut buf = vec![0u8; BUFFER_SIZE];
+    let mut remaining = range.end - range.start;
+    while remaining > 0 {
+        let chunk = remaining.min(BUFFER_SIZE as u64) as usize;
+        fill(&mut buf[..chunk], pattern);
+        file.write_all(&buf[..chunk])?;
+        remaining -= chunk as u64;
+    }
+    Ok(())
+}
+
+fn fill(buf: &mut [u8], pattern: Pattern) {
+    match pattern {
+        Pattern::Zeros => buf.fill(0x00),
+        Pattern::Ones => buf.fill(0xFF),
+        Pattern::Random => rand::rng().fill_bytes(buf),
+    }
 }
 
 /// clears the read-only flag so the entry can be overwritten and renamed.
@@ -123,28 +297,6 @@ fn set_writable(perms: &mut fs::Permissions, _is_dir: bool) {
     perms.set_readonly(false);
 }
 
-fn overwrite_pass(file: &mut File, len: u64, pattern: Pattern) -> io::Result<()> {
-    file.seek(SeekFrom::Start(0))?;
-
-    let mut buf = vec![0u8; BUFFER_SIZE];
-    let mut remaining = len;
-    while remaining > 0 {
-        let chunk = remaining.min(BUFFER_SIZE as u64) as usize;
-        fill(&mut buf[..chunk], pattern);
-        file.write_all(&buf[..chunk])?;
-        remaining -= chunk as u64;
-    }
-    Ok(())
-}
-
-fn fill(buf: &mut [u8], pattern: Pattern) {
-    match pattern {
-        Pattern::Zeros => buf.fill(0x00),
-        Pattern::Ones => buf.fill(0xFF),
-        Pattern::Random => rand::rng().fill_bytes(buf),
-    }
-}
-
 /// renames the entry to a random hidden name in the same directory, then deletes it,
 /// so the original name does not remain in the directory.
 fn unlink_with_random_name(path: &Path, is_dir: bool) -> io::Result<()> {
@@ -167,6 +319,17 @@ fn unlink_with_random_name(path: &Path, is_dir: bool) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::OpenOptions;
+
+    fn options(passes: u32) -> Options {
+        Options {
+            passes,
+            verbose: false,
+            force: true,
+            kill_holders: false,
+            raw_volume: false,
+        }
+    }
 
     fn write_file(dir: &Path, name: &str, data: &[u8]) -> PathBuf {
         let path = dir.join(name);
@@ -189,7 +352,8 @@ mod tests {
         let path = write_file(dir.path(), "data.bin", &original);
 
         let mut file = OpenOptions::new().write(true).open(&path).unwrap();
-        overwrite_pass(&mut file, original.len() as u64, Pattern::Zeros).unwrap();
+        let len = original.len() as u64;
+        overwrite_range(&mut file, &(0..len), Pattern::Zeros).unwrap();
         drop(file);
 
         let contents = fs::read(&path).unwrap();
@@ -204,7 +368,8 @@ mod tests {
         let path = write_file(dir.path(), "data.bin", &original);
 
         let mut file = OpenOptions::new().write(true).open(&path).unwrap();
-        overwrite_pass(&mut file, original.len() as u64, Pattern::Random).unwrap();
+        let len = original.len() as u64;
+        overwrite_range(&mut file, &(0..len), Pattern::Random).unwrap();
         drop(file);
 
         let contents = fs::read(&path).unwrap();
@@ -217,7 +382,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = write_file(dir.path(), "secret.txt", b"secret");
 
-        erase_path(&path, 2, false).unwrap();
+        erase_path(&path, &options(2)).unwrap();
 
         assert!(!path.exists());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
@@ -228,7 +393,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = write_file(dir.path(), "empty.txt", b"");
 
-        erase_path(&path, 1, false).unwrap();
+        erase_path(&path, &options(1)).unwrap();
 
         assert!(!path.exists());
     }
@@ -241,7 +406,7 @@ mod tests {
         write_file(&tree, "a.txt", b"a");
         write_file(&tree.join("nested/deeper"), "b.txt", b"b");
 
-        erase_path(&tree, 1, false).unwrap();
+        erase_path(&tree, &options(1)).unwrap();
 
         assert!(!tree.exists());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
@@ -261,7 +426,7 @@ mod tests {
         perms.set_readonly(true);
         fs::set_permissions(&tree, perms).unwrap();
 
-        erase_path(&tree, 1, false).unwrap();
+        erase_path(&tree, &options(1)).unwrap();
 
         assert!(!tree.exists());
     }
@@ -274,7 +439,7 @@ mod tests {
         let link = dir.path().join("link.txt");
         std::os::unix::fs::symlink(&target, &link).unwrap();
 
-        erase_path(&link, 1, false).unwrap();
+        erase_path(&link, &options(1)).unwrap();
 
         assert!(!link.exists());
         assert_eq!(fs::read(&target).unwrap(), b"keep me");
@@ -291,7 +456,7 @@ mod tests {
         fs::create_dir(&tree).unwrap();
         std::os::unix::fs::symlink(outside.path(), tree.join("link")).unwrap();
 
-        erase_path(&tree, 1, false).unwrap();
+        erase_path(&tree, &options(1)).unwrap();
 
         assert!(!tree.exists());
         assert_eq!(fs::read(&outside_file).unwrap(), b"keep me");

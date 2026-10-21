@@ -154,6 +154,18 @@ fn read_only_file_is_erased() {
     assert!(!file.exists());
 }
 
+#[cfg(not(windows))]
+#[test]
+fn windows_only_flags_are_rejected_elsewhere() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "a.txt");
+
+    let out = run(&["-f", "--kill-holders", path_str(&file)], "");
+
+    assert!(!out.status.success());
+    assert!(file.exists());
+}
+
 #[test]
 fn zero_passes_is_rejected() {
     let dir = tempfile::tempdir().unwrap();

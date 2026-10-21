@@ -1,8 +1,10 @@
 mod cli;
 mod erase;
+mod platform;
+mod prompt;
 mod safety;
+mod storage;
 
-use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -15,6 +17,11 @@ const NAME: &str = env!("CARGO_PKG_NAME");
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
+    if !cfg!(windows) && (cli.kill_holders || cli.raw_volume) {
+        eprintln!("{NAME}: --kill-holders and --raw-volume are only supported on windows");
+        return ExitCode::FAILURE;
+    }
+
     // validate every path before touching any file: one bad path aborts the whole run.
     let mut invalid = false;
     for path in &cli.paths {
@@ -25,6 +32,10 @@ fn main() -> ExitCode {
     }
     if invalid {
         return ExitCode::FAILURE;
+    }
+
+    for warning in storage::copy_on_write_warnings(&cli.paths) {
+        eprintln!("{NAME}: warning: {warning}");
     }
 
     if cli.dry_run {
@@ -39,12 +50,20 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    let opts = erase::Options {
+        passes: cli.passes,
+        verbose: cli.verbose,
+        force: cli.force,
+        kill_holders: cli.kill_holders,
+        raw_volume: cli.raw_volume,
+    };
+
     let mut failed = false;
     for path in &cli.paths {
         if cli.verbose {
             eprintln!("erasing {} ({} passes)", path.display(), cli.passes);
         }
-        if let Err(err) = erase::erase_path(path, cli.passes, cli.verbose) {
+        if let Err(err) = erase::erase_path(path, &opts) {
             eprintln!("{NAME}: {}: {err}", path.display());
             failed = true;
         }
@@ -57,17 +76,13 @@ fn main() -> ExitCode {
     }
 }
 
-/// asks the user to confirm. anything other than "y" or "yes" (including EOF) means no.
 fn confirm(paths: &[PathBuf], passes: u32) -> bool {
+    eprintln!(
+        "note: overwriting does not guarantee erasure on ssds, with snapshots, or on copy-on-write filesystems"
+    );
     eprintln!("the following files will be irreversibly erased ({passes} passes):");
     for path in paths {
         eprintln!("  {}", path.display());
     }
-    eprint!("continue? [y/N] ");
-
-    let mut answer = String::new();
-    if io::stdin().read_line(&mut answer).is_err() {
-        return false;
-    }
-    matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+    prompt::ask("continue?")
 }

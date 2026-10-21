@@ -34,4 +34,12 @@ pub struct Cli {
     /// print progress for each pass
     #[arg(short, long)]
     pub verbose: bool,
+
+    /// close processes that hold a locked file (windows only)
+    #[arg(long)]
+    pub kill_holders: bool,
+
+    /// overwrite a locked file through the raw volume, needs administrator (windows only)
+    #[arg(long)]
+    pub raw_volume: bool,
 }

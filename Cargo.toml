@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.88"
 description = "when you really want to delete something"
 readme = "README.md"
+license = "MIT"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

@@ -116,7 +116,7 @@ fn erase_file(path: &Path, opts: &Options) -> io::Result<()> {
             let whole = 0..len;
             overwrite(&mut file, std::slice::from_ref(&whole), opts)?;
             drop(file);
-            remove_entry(path)
+            remove_entry(path, opts)
         }
         Err(err) if is_locked(&err) => erase_locked(path, len, opts, err),
         Err(err) => Err(err),
@@ -153,7 +153,7 @@ fn erase_locked(path: &Path, len: u64, opts: &Options, err: io::Error) -> io::Re
                 let whole = 0..len;
                 overwrite(&mut file, std::slice::from_ref(&whole), opts)?;
                 drop(file);
-                return remove_entry(path);
+                return remove_entry(path, opts);
             }
             Err(retry_err) => {
                 eprintln!(
@@ -166,7 +166,7 @@ fn erase_locked(path: &Path, len: u64, opts: &Options, err: io::Error) -> io::Re
 
     if opts.raw_volume {
         eprintln!("warning: {RAW_VOLUME_WARNING}");
-        if !prompt::ask("continue with raw volume write?") {
+        if !opts.force && !prompt::ask("continue with raw volume write?") {
             return Err(io::Error::other("aborted, file is still locked"));
         }
         let layout = windows::physical_layout(path)?;
@@ -178,7 +178,7 @@ fn erase_locked(path: &Path, len: u64, opts: &Options, err: io::Error) -> io::Re
         let mut volume = windows::open_volume_for_write(&layout.volume)?;
         overwrite(&mut volume, &ranges, opts)?;
         drop(volume);
-        return remove_entry(path);
+        return remove_entry(path, opts);
     }
 
     Err(io::Error::other(format!(
@@ -210,14 +210,14 @@ fn is_locked(_err: &io::Error) -> bool {
 
 /// removes a file whose contents are already overwritten.
 #[cfg(not(windows))]
-fn remove_entry(path: &Path) -> io::Result<()> {
+fn remove_entry(path: &Path, _opts: &Options) -> io::Result<()> {
     unlink_with_random_name(path, false)
 }
 
 /// windows: posix delete first (removes the name even while other handles are open),
-/// then rename and delete, then, after asking, deletion at the next reboot.
+/// then rename and delete, then deletion at the next reboot (only if not forced).
 #[cfg(windows)]
-fn remove_entry(path: &Path) -> io::Result<()> {
+fn remove_entry(path: &Path, opts: &Options) -> io::Result<()> {
     if let Ok(handle) = windows::open_for_delete(path)
         && windows::posix_delete(&handle).is_ok()
     {
@@ -227,11 +227,13 @@ fn remove_entry(path: &Path) -> io::Result<()> {
         return Ok(());
     }
 
-    if !prompt::ask(
-        "file is still in use and cannot be deleted now (contents are already erased). schedule deletion at next reboot?",
-    ) {
+    if opts.force
+        || !prompt::ask(
+            "file is still in use and cannot be deleted now (contents are already erased). schedule deletion at next reboot?",
+        )
+    {
         return Err(io::Error::other(
-            "kept, contents are erased but the file remains",
+            "contents are erased, the file remains and is not scheduled for deletion at reboot",
         ));
     }
     windows::delete_on_reboot(path)

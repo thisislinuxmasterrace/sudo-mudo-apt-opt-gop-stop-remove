@@ -18,7 +18,7 @@ pub struct Cli {
     #[arg(
         short = 'n',
         long,
-        default_value_t = 3,
+        default_value_t = 1,
         value_parser = clap::value_parser!(u32).range(1..)
     )]
     pub passes: u32,

@@ -13,7 +13,7 @@ contents several times, then deletes them. works on windows, macos and linux.
 
 ```sh
 sudo-mudo-apt-opt-gop-stop-remove venom.exe            # erase a file, asks for confirmation
-sudo-mudo-apt-opt-gop-stop-remove -n 1 disk-dump.img   # use a single overwrite pass
+sudo-mudo-apt-opt-gop-stop-remove -n 3 disk-dump.img   # three overwrite passes (default is one)
 sudo-mudo-apt-opt-gop-stop-remove -f notes.txt         # skip the confirmation prompt
 sudo-mudo-apt-opt-gop-stop-remove -r build/            # erase a directory tree
 sudo-mudo-apt-opt-gop-stop-remove --dry-run notes.txt  # only show what would be erased
@@ -43,12 +43,18 @@ a file held open by another program is not erased by default.
 - `--kill-holders` closes the programs that hold the file. it asks first, unless
   `-f` is given. services may be stopped too.
 - `--raw-volume` overwrites the file's clusters directly on the volume. it needs
-  administrator rights, bypasses the filesystem and always asks for confirmation.
+  administrator rights and bypasses the filesystem. it prints a warning and asks
+  for confirmation unless `-f` is given.
   files whose data is stored inside the mft (very small files) and compressed or
   sparse files are refused.
 
 if the file still cannot be deleted after its contents are erased, you are asked
-whether to delete it at the next reboot.
+whether to delete it at the next reboot. with `-f` nothing is scheduled and the
+file stays in place.
+
+## license
+
+copyright (c) 2026 kirill belolipetsky. mit license, see [LICENSE](LICENSE).
 
 erased files cannot be recovered with this tool. use it with care.
 

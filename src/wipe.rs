@@ -7,6 +7,7 @@ use std::path::Path;
 
 use crate::erase::{self, Options, Pattern, pattern_for_pass};
 use crate::preview::human_bytes;
+use crate::progress::Progress;
 
 const CHUNK: usize = 1024 * 1024;
 const GIB: u64 = 1024 * 1024 * 1024;
@@ -24,15 +25,31 @@ pub fn wipe_free_space(dir: &Path, opts: &Options) -> io::Result<u64> {
 }
 
 fn wipe_passes(dir: &Path, opts: &Options, limit: Option<u64>) -> io::Result<u64> {
+    // the size is only known when a limit is given (tests); a wipe runs until the volume is full.
+    let total = limit.map(|max| max.saturating_mul(u64::from(opts.passes)));
+    let mut progress = Progress::new(total, opts.quiet);
+    let result = wipe_each_pass(dir, opts, limit, &mut progress);
+    progress.finish();
+    result
+}
+
+fn wipe_each_pass(
+    dir: &Path,
+    opts: &Options,
+    limit: Option<u64>,
+    progress: &mut Progress,
+) -> io::Result<u64> {
     let mut total = 0u64;
     for pass in 0..opts.passes {
         let pattern = pattern_for_pass(pass, opts.passes);
         if opts.verbose {
+            progress.finish();
             eprintln!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
         }
-        let written = fill_pass(dir, pattern, limit, opts.verbose)?;
+        let written = fill_pass(dir, pattern, limit, opts.verbose, progress)?;
         total += written;
         if opts.verbose {
+            progress.finish();
             eprintln!(
                 "  pass {}/{} done: {} written",
                 pass + 1,
@@ -47,14 +64,20 @@ fn wipe_passes(dir: &Path, opts: &Options, limit: Option<u64>) -> io::Result<u64
 /// fills the free space with one pattern. a file that hits the filesystem's size limit (fat32)
 /// is followed by another file, until the volume is full or `limit` bytes are written.
 /// returns the bytes written in this pass.
-fn fill_pass(dir: &Path, pattern: Pattern, limit: Option<u64>, verbose: bool) -> io::Result<u64> {
+fn fill_pass(
+    dir: &Path,
+    pattern: Pattern,
+    limit: Option<u64>,
+    verbose: bool,
+    progress: &mut Progress,
+) -> io::Result<u64> {
     let mut total = 0u64;
     loop {
         let remaining = limit.map(|max| max - total);
         if remaining == Some(0) {
             break;
         }
-        let fill = fill_file(dir, pattern, remaining, verbose)?;
+        let fill = fill_file(dir, pattern, remaining, verbose, progress)?;
         total += fill.written;
         if !fill.file_too_large || fill.written == 0 {
             break;
@@ -70,7 +93,13 @@ struct Fill {
 
 /// writes `pattern` into a new temporary file until the volume is full, the file reaches the
 /// filesystem's size limit, or `limit` bytes are written. the file is gone when this returns.
-fn fill_file(dir: &Path, pattern: Pattern, limit: Option<u64>, verbose: bool) -> io::Result<Fill> {
+fn fill_file(
+    dir: &Path,
+    pattern: Pattern,
+    limit: Option<u64>,
+    verbose: bool,
+    progress: &mut Progress,
+) -> io::Result<Fill> {
     let path = dir.join(format!(".fill-{:016x}", rand::random::<u64>()));
     let mut file = create_temp(&path)?;
     let mut buf = vec![0u8; CHUNK];
@@ -79,6 +108,7 @@ fn fill_file(dir: &Path, pattern: Pattern, limit: Option<u64>, verbose: bool) ->
     let mut file_too_large = false;
 
     loop {
+        erase::check_interrupted()?;
         let want = match limit {
             Some(max) => (max - written).min(CHUNK as u64) as usize,
             None => CHUNK,
@@ -91,9 +121,11 @@ fn fill_file(dir: &Path, pattern: Pattern, limit: Option<u64>, verbose: bool) ->
             Ok(0) => break,
             Ok(n) => {
                 written += n as u64;
+                progress.add(n as u64);
                 // a long fill runs for hours on big disks; show that it is moving.
                 if verbose && written / GIB > reported_gib {
                     reported_gib = written / GIB;
+                    progress.finish();
                     eprintln!("    {} written", human_bytes(written));
                 }
             }
@@ -189,7 +221,8 @@ mod tests {
             verbose: false,
             force: true,
             kill_holders: false,
-            raw_volume: false,
+            allow_protected: false,
+            quiet: true,
         }
     }
 
@@ -198,7 +231,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let limit = 2 * CHUNK as u64 + 5;
 
-        let fill = fill_file(dir.path(), Pattern::Zeros, Some(limit), false).unwrap();
+        let fill = fill_file(
+            dir.path(),
+            Pattern::Zeros,
+            Some(limit),
+            false,
+            &mut Progress::new(None, true),
+        )
+        .unwrap();
 
         assert_eq!(fill.written, limit);
         assert!(!fill.file_too_large);

@@ -50,6 +50,7 @@ pub fn validate_target(
 
 /// checks that `path` is a directory, and outside protected system locations unless
 /// `allow_protected` (then `Ok(true)` means the caller must warn). required by `--wipe-free`.
+/// a filesystem root is refused even with `allow_protected`, as it is for erase.
 /// the home directory is not checked: filling its free space changes no existing file.
 /// a symlink to a directory is accepted: only the filesystem behind it is used, nothing is removed.
 pub fn validate_wipe_dir(path: &Path, allow_protected: bool) -> Result<bool, String> {
@@ -58,6 +59,12 @@ pub fn validate_wipe_dir(path: &Path, allow_protected: bool) -> Result<bool, Str
         return Err(format!("{}: not a directory", path.display()));
     }
     let location = fs::canonicalize(path).map_err(|err| format!("{}: {err}", path.display()))?;
+    if location.parent().is_none() {
+        return Err(format!(
+            "{}: refusing to fill a filesystem root",
+            path.display()
+        ));
+    }
     if !is_system_protected(&location) {
         return Ok(false);
     }
@@ -90,7 +97,8 @@ fn is_protected(location: &Path) -> bool {
 }
 
 /// the system part of `is_protected`. `--wipe-free` checks only this, because it touches no files.
-/// nothing here reads environment variables, so no environment setting can open a system path.
+/// on unix nothing here reads environment variables, so no environment setting can open a system path.
+/// on windows the system directories come from environment variables (`SystemRoot`, `ProgramFiles`, ...).
 fn is_system_protected(location: &Path) -> bool {
     let path = strip_verbatim_prefix(location);
     // filesystem roots ("/", "C:\") have no parent.
@@ -371,6 +379,13 @@ mod tests {
                 assert!(is_protected(&lower));
             }
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wipe_free_refuses_root_even_with_override() {
+        assert!(validate_wipe_dir(Path::new("/"), false).is_err());
+        assert!(validate_wipe_dir(Path::new("/"), true).is_err());
     }
 
     #[cfg(unix)]

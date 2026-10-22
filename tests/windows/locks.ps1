@@ -1,12 +1,10 @@
 # locked-file scenarios for the windows erase path.
-# needs pwsh 7+ (ProcessStartInfo.ArgumentList). scenario 4 needs an elevated shell.
-# scenarios 1-3 touch only files in a fresh temp directory, so they are safe to run locally.
+# needs pwsh 7+ (ProcessStartInfo.ArgumentList).
+# scenarios touch only files in a fresh temp directory, so they are safe to run locally.
 
 param(
     [Parameter(Mandatory)]
-    [string]$Binary,
-    # scenario 4 writes to the raw volume of this machine; outside github actions it runs only with this switch.
-    [switch]$AllowRawVolume
+    [string]$Binary
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,8 +55,7 @@ function Invoke-Binary([string[]]$Arguments) {
     }
 }
 
-# random bytes so an overwrite is detectable. 64 KiB so the file is not
-# NTFS-resident: the raw-volume path refuses resident files.
+# random bytes so an overwrite is detectable.
 function New-RandomFile([string]$FileName) {
     $path = Join-Path $scratch $FileName
     $bytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(65536)
@@ -154,39 +151,6 @@ try {
             Add-Result $Name 'PASS' 'exit 0, file removed, holder exited'
         } else {
             Add-Result $Name 'FAIL' "exit $($result.ExitCode), file removed: $gone, holder exited: $holderExited"
-        }
-    }
-
-    Invoke-Scenario '4. FileShare.Read holder, --raw-volume' {
-        $ci = $env:GITHUB_ACTIONS -eq 'true'
-        if (-not $ci -and -not $AllowRawVolume) {
-            Add-Result $Name 'SKIPPED' 'not on a github runner and -AllowRawVolume not given'
-            return
-        }
-        $principal = [System.Security.Principal.WindowsPrincipal]::new([System.Security.Principal.WindowsIdentity]::GetCurrent())
-        if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
-            if ($ci) {
-                Add-Result $Name 'FAIL' 'runner shell is not elevated, raw volume needs administrator'
-            } else {
-                Add-Result $Name 'SKIPPED' 'not elevated, raw volume needs administrator'
-            }
-            return
-        }
-        $file = New-RandomFile 'raw-volume.bin'
-        $hashBefore = Get-Sha256 $file
-        $null = Start-Holder -Path $file -Share ([System.IO.FileShare]::Read) -Name 'raw-volume'
-        $result = Invoke-Binary @('--raw-volume', '-f', $file)
-        Show-Result $Name $result
-        # windows refuses direct writes to a mounted volume that is in use, and the tool does
-        # not lock or dismount it. the expected result is that refusal, with the file untouched.
-        $text = "$($result.Stdout)$($result.Stderr)"
-        $refused = $text.Contains('refused the direct write')
-        $exists = Test-Path -LiteralPath $file
-        $unchanged = (Get-Sha256 $file) -eq $hashBefore
-        if ($result.ExitCode -ne 0 -and $refused -and $exists -and $unchanged) {
-            Add-Result $Name 'PASS' 'exit non-zero, direct write refused, file kept, bytes unchanged'
-        } else {
-            Add-Result $Name 'FAIL' "exit $($result.ExitCode), refusal shown: $refused, file kept: $exists, bytes unchanged: $unchanged"
         }
     }
 }

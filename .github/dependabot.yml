@@ -6,9 +6,9 @@ updates:
     schedule:
       interval: weekly
     ignore:
-      # rand 0.10 removed RngCore and changed ThreadRng; the code targets 0.9 until it is ported.
+      # rand is 0.x: a minor bump is breaking (0.9 -> 0.10 removed RngCore); the code targets 0.9 until it is ported.
       - dependency-name: "rand"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: github-actions
     directory: /

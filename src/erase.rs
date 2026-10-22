@@ -4,6 +4,7 @@ use std::io::{self, Seek, SeekFrom, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(unix)]
 use std::ffi::{CStr, CString, OsStr};
@@ -21,10 +22,15 @@ use nix::errno::Errno;
 #[cfg(unix)]
 use nix::fcntl::{AtFlags, OFlag, openat, renameat};
 #[cfg(unix)]
+use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
+#[cfg(unix)]
 use nix::sys::stat::{FchmodatFlags, FileStat, Mode, SFlag, fchmodat, fstat, fstatat};
 #[cfg(unix)]
-use nix::unistd::{UnlinkatFlags, unlinkat};
+use nix::unistd::{UnlinkatFlags, geteuid, unlinkat};
 use rand::RngCore;
+
+use crate::log::{Kind, Log, Outcome};
+use crate::progress::Progress;
 
 #[cfg(windows)]
 use crate::platform::windows;
@@ -34,11 +40,6 @@ use crate::prompt;
 /// size of the buffer used for each write, in bytes.
 const BUFFER_SIZE: usize = 1024 * 1024;
 
-/// shown before a raw volume write; this path bypasses the filesystem entirely.
-#[cfg(windows)]
-const RAW_VOLUME_WARNING: &str = "raw volume write bypasses the filesystem: it can corrupt the volume \
-    if the file changes during the operation, and data cached by other programs may survive";
-
 /// settings for one erase run.
 pub struct Options {
     pub passes: u32,
@@ -47,8 +48,250 @@ pub struct Options {
     pub force: bool,
     #[cfg_attr(not(windows), allow(dead_code))]
     pub kill_holders: bool,
-    #[cfg_attr(not(windows), allow(dead_code))]
-    pub raw_volume: bool,
+    /// lifts the refusal of hard-linked files under root, the same flag that lifts the protected-path refusal.
+    pub allow_protected: bool,
+    /// no progress line on stderr. warnings and errors are printed anyway.
+    pub quiet: bool,
+}
+
+/// where an entry sits in a walk: `rel` is its path from the command-line argument (empty for the
+/// argument itself), `excludes` are the `--exclude` patterns, and `log` is the `--log` file, if any.
+#[derive(Clone, Copy)]
+struct Walk<'a> {
+    rel: &'a Path,
+    excludes: &'a [String],
+    log: Option<&'a Log>,
+}
+
+/// set by the interrupt handlers on the first ctrl+c or sigterm while an erase runs.
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+/// records an interrupt and returns true when one was already recorded. it runs inside signal and
+/// console handlers, so it only does an atomic swap.
+pub(crate) fn raise_interrupt() -> bool {
+    record_interrupt(&INTERRUPTED)
+}
+
+/// sets `flag` and returns true when it was already set, which makes the caller's signal the second one.
+fn record_interrupt(flag: &AtomicBool) -> bool {
+    flag.swap(true, Ordering::SeqCst)
+}
+
+pub(crate) fn interrupted() -> bool {
+    INTERRUPTED.load(Ordering::SeqCst)
+}
+
+/// returned by the write loops once an interrupt was recorded. it is passed up unchanged, so the
+/// walk stops and the partly written file keeps its name.
+pub(crate) fn check_interrupted() -> io::Result<()> {
+    if interrupted() {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "interrupted by signal",
+        ));
+    }
+    Ok(())
+}
+
+/// routes ctrl+c and sigterm to the interrupt flag until the guard is dropped, so the handlers only
+/// cover the erase itself and not the questions before it.
+#[cfg(unix)]
+pub struct InterruptGuard {
+    previous: Vec<(Signal, SigAction)>,
+}
+
+#[cfg(unix)]
+impl InterruptGuard {
+    pub fn install() -> io::Result<Self> {
+        let action = SigAction::new(
+            SigHandler::Handler(on_unix_interrupt),
+            SaFlags::empty(),
+            SigSet::empty(),
+        );
+        let mut guard = Self {
+            previous: Vec::new(),
+        };
+        for signal in [Signal::SIGINT, Signal::SIGTERM] {
+            // a signal the process was started with ignored stays ignored.
+            if ignores(signal)? {
+                continue;
+            }
+            // safety: on_unix_interrupt only does an atomic swap and calls _exit, both allowed in a signal handler.
+            let old = unsafe { sigaction(signal, &action) }.map_err(io::Error::from)?;
+            guard.previous.push((signal, old));
+        }
+        Ok(guard)
+    }
+}
+
+/// true when `signal` is currently ignored. a null action only reads the disposition, so nothing changes.
+#[cfg(unix)]
+fn ignores(signal: Signal) -> io::Result<bool> {
+    let mut current = std::mem::MaybeUninit::<libc::sigaction>::uninit();
+    // safety: with a null new action, sigaction only writes the current action into `current`.
+    let ret = unsafe {
+        libc::sigaction(
+            signal as libc::c_int,
+            std::ptr::null(),
+            current.as_mut_ptr(),
+        )
+    };
+    if ret != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // safety: sigaction returned 0, so it has written the whole struct.
+    let current = unsafe { current.assume_init() };
+    Ok(current.sa_sigaction == libc::SIG_IGN)
+}
+
+#[cfg(unix)]
+impl Drop for InterruptGuard {
+    fn drop(&mut self) {
+        for (signal, action) in &self.previous {
+            // safety: the action was returned by sigaction for this signal, so restoring it is valid.
+            let _ = unsafe { sigaction(*signal, action) };
+        }
+    }
+}
+
+#[cfg(unix)]
+extern "C" fn on_unix_interrupt(_signal: libc::c_int) {
+    if raise_interrupt() {
+        // safety: _exit is async-signal-safe and does not return.
+        unsafe { libc::_exit(130) }
+    }
+}
+
+/// console ctrl+c, ctrl+break and closing the console set the interrupt flag while the guard lives.
+#[cfg(windows)]
+pub struct InterruptGuard;
+
+#[cfg(windows)]
+impl InterruptGuard {
+    pub fn install() -> io::Result<Self> {
+        windows::set_interrupt_handler(true)?;
+        Ok(Self)
+    }
+}
+
+#[cfg(windows)]
+impl Drop for InterruptGuard {
+    fn drop(&mut self) {
+        let _ = windows::set_interrupt_handler(false);
+    }
+}
+
+/// what erase does with a file that has more than one hard link.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum HardLinkRule {
+    Erase,
+    EraseWithWarning,
+    Refuse,
+}
+
+/// under root, other names may point to the same data outside the erased tree, so a file with
+/// several links is refused unless `allow` is set. the rule covers root only: an ordinary user
+/// links to files it may already change.
+pub(crate) fn hard_link_rule(is_root: bool, hard_linked: bool, allow: bool) -> HardLinkRule {
+    match (is_root && hard_linked, allow) {
+        (false, _) => HardLinkRule::Erase,
+        (true, true) => HardLinkRule::EraseWithWarning,
+        (true, false) => HardLinkRule::Refuse,
+    }
+}
+
+/// applies `hard_link_rule` before the file is touched. `shown` is the path reported to the user.
+fn check_hard_links(shown: &Path, hard_linked: bool, opts: &Options) -> io::Result<()> {
+    match hard_link_rule(running_as_root(), hard_linked, opts.allow_protected) {
+        HardLinkRule::Erase => Ok(()),
+        HardLinkRule::EraseWithWarning => {
+            eprintln!(
+                "{}: warning: hard-linked file under root, erasing it because --i-know-what-i-am-doing was given",
+                shown.display()
+            );
+            Ok(())
+        }
+        HardLinkRule::Refuse => Err(io::Error::other(
+            "hard-linked file under root: other names may point to the same data, use --i-know-what-i-am-doing to erase it",
+        )),
+    }
+}
+
+/// writes one line to the log, when there is one. `passes` is recorded for regular files only.
+fn log_object(
+    log: Option<&Log>,
+    shown: &Path,
+    kind: Kind,
+    size: u64,
+    outcome: Outcome,
+    detail: &str,
+) {
+    if let Some(log) = log {
+        log.record(shown, kind, size, outcome, detail);
+    }
+}
+
+/// writes the line of an object whose erase returned `result`. `refused` marks an object the erase
+/// refused before touching it; `warning` is the note for an erase that went ahead anyway.
+fn log_done(
+    log: Option<&Log>,
+    shown: &Path,
+    kind: Kind,
+    size: u64,
+    result: &io::Result<bool>,
+    refused: bool,
+    warning: &str,
+) {
+    match result {
+        Ok(false) => log_object(log, shown, kind, size, Outcome::Ok, warning),
+        Ok(true) => log_object(
+            log,
+            shown,
+            kind,
+            size,
+            Outcome::Kept,
+            "kept: an entry inside is excluded by --exclude",
+        ),
+        Err(err) if err.kind() == io::ErrorKind::Interrupted => {
+            if let Some(log) = log {
+                log.record_interrupted(shown, kind, size);
+            }
+        }
+        Err(err) => {
+            let outcome = if refused {
+                Outcome::Refused
+            } else {
+                Outcome::Error
+            };
+            log_object(log, shown, kind, size, outcome, &err.to_string());
+        }
+    }
+}
+
+/// writes the line of an entry that could not be inspected, so its kind is not known.
+fn unseen(log: Option<&Log>, shown: &Path, err: io::Error) -> io::Error {
+    log_object(log, shown, Kind::Other, 0, Outcome::Error, &err.to_string());
+    err
+}
+
+/// refuses to erase anything once a log line could not be written: nothing is erased without its log.
+fn log_stopped(log: Option<&Log>) -> io::Result<()> {
+    match log {
+        Some(log) if log.failed() => Err(io::Error::other(
+            "the log could not be written, erasing stopped",
+        )),
+        _ => Ok(()),
+    }
+}
+
+#[cfg(unix)]
+pub(crate) fn running_as_root() -> bool {
+    geteuid().is_root()
+}
+
+#[cfg(not(unix))]
+pub(crate) fn running_as_root() -> bool {
+    false
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,8 +329,16 @@ pub(crate) fn pattern_for_pass(pass: u32, passes: u32) -> Pattern {
 /// symbolic links are removed without being followed, so their targets are never touched.
 /// directories are erased depth-first. a failing entry is reported and skipped; its directory
 /// is kept, so the error for the whole tree is returned.
+///
+/// entries matching `excludes` are kept on purpose: their directories are kept too, and the result is
+/// `Ok(true)` (something was kept because of `--exclude`), which is not a failure.
 #[cfg(unix)]
-pub fn erase_path(path: &Path, opts: &Options) -> io::Result<()> {
+pub fn erase_path(
+    path: &Path,
+    opts: &Options,
+    excludes: &[String],
+    log: Option<&Log>,
+) -> io::Result<bool> {
     let Some(name) = path.file_name() else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -100,17 +351,85 @@ pub fn erase_path(path: &Path, opts: &Options) -> io::Result<()> {
     };
     // the parent is named by the user, so links in it are followed. the entry is looked up
     // only relative to open directory descriptors, so no later lookup can follow a link.
-    let dir = File::open(parent)?;
-    let entry = CString::new(name.as_bytes()).map_err(io::Error::other)?;
-    let st = fstatat(&dir, entry.as_c_str(), AtFlags::AT_SYMLINK_NOFOLLOW)?;
-    let real = fs::canonicalize(parent)?.join(name);
+    let dir = File::open(parent).map_err(|err| unseen(log, path, err))?;
+    let entry =
+        CString::new(name.as_bytes()).map_err(|err| unseen(log, path, io::Error::other(err)))?;
+    let st = fstatat(&dir, entry.as_c_str(), AtFlags::AT_SYMLINK_NOFOLLOW)
+        .map_err(|err| unseen(log, path, io::Error::from(err)))?;
+    let real = fs::canonicalize(parent)
+        .map_err(|err| unseen(log, path, err))?
+        .join(name);
     // a mount point cannot be renamed away, so it is refused before anything inside it is erased.
-    if is_boundary(&st, &fstat(&dir)?, &real)? {
-        return Err(io::Error::other(
-            "is a mount point or on another filesystem, refusing to erase it",
-        ));
+    let boundary = fstat(&dir)
+        .map_err(io::Error::from)
+        .and_then(|parent_st| is_boundary(&st, &parent_st, &real))
+        .map_err(|err| unseen(log, path, err))?;
+    if boundary {
+        let err =
+            io::Error::other("is a mount point or on another filesystem, refusing to erase it");
+        let (kind, size) = stat_kind(&st);
+        log_object(log, path, kind, size, Outcome::Refused, &err.to_string());
+        return Err(err);
     }
-    erase_entry(&dir, entry.as_c_str(), &st, path, &real, opts)
+    let walk = Walk {
+        rel: Path::new(""),
+        excludes,
+        log,
+    };
+    erase_object(&dir, entry.as_c_str(), &st, path, &real, walk, opts)
+}
+
+/// erases one entry and writes its line to the log. `st` is its stat, taken without following links.
+#[cfg(unix)]
+fn erase_object(
+    parent: &File,
+    name: &CStr,
+    st: &FileStat,
+    shown: &Path,
+    real: &Path,
+    walk: Walk<'_>,
+    opts: &Options,
+) -> io::Result<bool> {
+    log_stopped(walk.log)?;
+    let (kind, size) = stat_kind(st);
+    let rule = hard_link_rule(running_as_root(), st.st_nlink > 1, opts.allow_protected);
+    let refused = kind == Kind::Other || (kind == Kind::File && rule == HardLinkRule::Refuse);
+    let warning = if kind == Kind::File && rule == HardLinkRule::EraseWithWarning {
+        "hard-linked file under root, erased because --i-know-what-i-am-doing was given"
+    } else {
+        ""
+    };
+    // checked before each object, so an object the signal reaches is not touched.
+    let result =
+        check_interrupted().and_then(|()| erase_entry(parent, name, st, shown, real, walk, opts));
+    log_done(walk.log, shown, kind, size, &result, refused, warning);
+    result
+}
+
+/// kind of an entry from its stat, and its size: only regular files have one.
+#[cfg(unix)]
+fn stat_kind(st: &FileStat) -> (Kind, u64) {
+    let kind = file_kind(st);
+    if kind == SFlag::S_IFREG {
+        (Kind::File, u64::try_from(st.st_size).unwrap_or(0))
+    } else if kind == SFlag::S_IFDIR {
+        (Kind::Dir, 0)
+    } else if kind == SFlag::S_IFLNK {
+        (Kind::Link, 0)
+    } else {
+        (Kind::Other, 0)
+    }
+}
+
+/// writes a skipped line for an entry that is not erased. the entry is only stat'ed for the log.
+#[cfg(unix)]
+fn log_skipped_at(log: Option<&Log>, dir: &File, name: &CStr, shown: &Path, detail: &str) {
+    if log.is_none() {
+        return;
+    }
+    let (kind, size) = fstatat(dir, name, AtFlags::AT_SYMLINK_NOFOLLOW)
+        .map_or((Kind::Other, 0), |st| stat_kind(&st));
+    log_object(log, shown, kind, size, Outcome::Skipped, detail);
 }
 
 /// erases a file, a directory tree, or a symbolic link.
@@ -119,18 +438,52 @@ pub fn erase_path(path: &Path, opts: &Options) -> io::Result<()> {
 /// directories are erased depth-first. a failing entry is reported and skipped; its directory
 /// is kept, so the error for the whole tree is returned.
 #[cfg(windows)]
-pub fn erase_path(path: &Path, opts: &Options) -> io::Result<()> {
-    let file_type = fs::symlink_metadata(path)?.file_type();
+pub fn erase_path(
+    path: &Path,
+    opts: &Options,
+    excludes: &[String],
+    log: Option<&Log>,
+) -> io::Result<bool> {
+    erase_within(
+        path,
+        Walk {
+            rel: Path::new(""),
+            excludes,
+            log,
+        },
+        opts,
+    )
+}
+
+#[cfg(windows)]
+fn erase_within(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
+    log_stopped(walk.log)?;
+    let meta = fs::symlink_metadata(path).map_err(|err| unseen(walk.log, path, err))?;
+    let (kind, size) = meta_kind(&meta);
+    let result = check_interrupted().and_then(|()| erase_kind(path, &meta, walk, opts));
+    log_done(walk.log, path, kind, size, &result, kind == Kind::Other, "");
+    result
+}
+
+#[cfg(windows)]
+fn erase_kind(
+    path: &Path,
+    meta: &fs::Metadata,
+    walk: Walk<'_>,
+    opts: &Options,
+) -> io::Result<bool> {
+    let file_type = meta.file_type();
 
     if file_type.is_symlink() {
         return fs::remove_file(path)
-            .or_else(|file_err| fs::remove_dir(path).map_err(|_| file_err));
+            .or_else(|file_err| fs::remove_dir(path).map_err(|_| file_err))
+            .map(|()| false);
     }
     if file_type.is_dir() {
-        return erase_dir(path, opts);
+        return erase_dir(path, walk, opts);
     }
     if file_type.is_file() {
-        return erase_file(path, opts);
+        return erase_file(path, opts).map(|()| false);
     }
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
@@ -138,28 +491,82 @@ pub fn erase_path(path: &Path, opts: &Options) -> io::Result<()> {
     ))
 }
 
+/// kind of an entry from its metadata, and its size: only regular files have one.
 #[cfg(windows)]
-fn erase_dir(path: &Path, opts: &Options) -> io::Result<()> {
+fn meta_kind(meta: &fs::Metadata) -> (Kind, u64) {
+    let file_type = meta.file_type();
+    if file_type.is_symlink() {
+        (Kind::Link, 0)
+    } else if file_type.is_dir() {
+        (Kind::Dir, 0)
+    } else if file_type.is_file() {
+        (Kind::File, meta.len())
+    } else {
+        (Kind::Other, 0)
+    }
+}
+
+/// writes a skipped line for an entry that is not erased. the entry is only stat'ed for the log.
+#[cfg(windows)]
+fn log_skipped_path(log: Option<&Log>, path: &Path, detail: &str) {
+    if log.is_none() {
+        return;
+    }
+    let (kind, size) = fs::symlink_metadata(path).map_or((Kind::Other, 0), |meta| meta_kind(&meta));
+    log_object(log, path, kind, size, Outcome::Skipped, detail);
+}
+
+#[cfg(windows)]
+fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
     make_writable(path, true)?;
 
     // collect entries first so the directory is not modified while it is being iterated.
-    let entries: Vec<PathBuf> = fs::read_dir(path)?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<io::Result<_>>()?;
+    let entries: Vec<fs::DirEntry> = fs::read_dir(path)?.collect::<io::Result<_>>()?;
     // never erase what is mounted inside the tree: that is another disk or the source of a bind mount.
     let parent_dev = device(&fs::symlink_metadata(path)?);
     let mut failed = 0usize;
+    let mut excluded = 0usize;
+    let mut kept_inside = false;
     for entry in &entries {
-        let result = match is_mount_boundary(entry, parent_dev) {
-            Ok(true) => Err(io::Error::other(
-                "is a mount point or on another filesystem, skipped",
-            )),
-            Ok(false) => erase_path(entry, opts),
-            Err(err) => Err(err),
+        let entry_path = entry.path();
+        let entry_rel = walk.rel.join(entry.file_name());
+        // excluded entries are not walked, so an excluded directory is not walked either.
+        if is_excluded(walk.excludes, &entry_rel) {
+            excluded += 1;
+            log_skipped_path(walk.log, &entry_path, "excluded by --exclude");
+            continue;
+        }
+        let child = Walk {
+            rel: &entry_rel,
+            excludes: walk.excludes,
+            log: walk.log,
         };
-        if let Err(err) = result {
-            eprintln!("{}: {err}", entry.display());
-            failed += 1;
+        let result = match is_mount_boundary(&entry_path, parent_dev) {
+            Ok(true) => {
+                log_skipped_path(
+                    walk.log,
+                    &entry_path,
+                    "mount point or other filesystem, skipped",
+                );
+                Err(io::Error::other(
+                    "is a mount point or on another filesystem, skipped",
+                ))
+            }
+            Ok(false) => erase_within(&entry_path, child, opts),
+            Err(err) => Err(unseen(walk.log, &entry_path, err)),
+        };
+        match result {
+            Ok(inside_kept) => kept_inside |= inside_kept,
+            Err(err) => {
+                if err.kind() == io::ErrorKind::Interrupted {
+                    if !entry_path.is_dir() {
+                        eprintln!("{}: {err}", entry_path.display());
+                    }
+                    return Err(err);
+                }
+                eprintln!("{}: {err}", entry_path.display());
+                failed += 1;
+            }
         }
     }
     if failed > 0 {
@@ -168,11 +575,20 @@ fn erase_dir(path: &Path, opts: &Options) -> io::Result<()> {
             path.display()
         )));
     }
+    if excluded > 0 {
+        eprintln!(
+            "kept {}: {excluded} entries excluded by --exclude",
+            path.display()
+        );
+    }
+    if excluded > 0 || kept_inside {
+        return Ok(true);
+    }
 
     if opts.verbose {
         eprintln!("  removing directory {}", path.display());
     }
-    unlink_with_random_name(path, true)
+    unlink_with_random_name(path, true).map(|()| false)
 }
 
 /// filesystem id of an entry.
@@ -294,6 +710,79 @@ pub(crate) fn unescape_mountinfo(path: &str) -> String {
         .replace("\\134", "\\")
 }
 
+/// true when `rel`, the path of an entry from its command-line argument, matches an `--exclude`
+/// pattern. a pattern without `/` is compared with the name of the entry, a pattern with `/` with the
+/// whole path. the argument itself has an empty `rel`, so it never matches.
+pub(crate) fn is_excluded(patterns: &[String], rel: &Path) -> bool {
+    let Some(name) = rel.file_name() else {
+        return false;
+    };
+    let parts: Vec<&[u8]> = rel
+        .components()
+        .map(|part| part.as_os_str().as_encoded_bytes())
+        .collect();
+    let whole = parts.join(&b'/');
+    patterns.iter().any(|pattern| {
+        let text = if pattern.contains('/') {
+            whole.as_slice()
+        } else {
+            name.as_encoded_bytes()
+        };
+        glob_match(pattern.as_bytes(), text)
+    })
+}
+
+/// `*` matches any run of characters except `/`, `?` matches one UTF-8 character except `/`, and every
+/// other byte matches itself. there are no character classes. the text is walked bytewise, but a step
+/// never stops inside a UTF-8 character.
+fn glob_match(pattern: &[u8], text: &[u8]) -> bool {
+    let (mut p, mut t) = (0, 0);
+    // the last `*`: where its pattern resumes, and the text byte where it started matching.
+    let mut star: Option<(usize, usize)> = None;
+    while t < text.len() {
+        if p < pattern.len() {
+            match pattern[p] {
+                b'*' => {
+                    star = Some((p + 1, t));
+                    p += 1;
+                    continue;
+                }
+                b'?' if text[t] != b'/' => {
+                    p += 1;
+                    t = char_end(text, t);
+                    continue;
+                }
+                literal if literal == text[t] => {
+                    p += 1;
+                    t += 1;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        // no direct match: the last `*` takes one more byte, unless that byte is a `/`.
+        match star {
+            Some((resume, taken)) if text[taken] != b'/' => {
+                let next = char_end(text, taken);
+                star = Some((resume, next));
+                p = resume;
+                t = next;
+            }
+            _ => return false,
+        }
+    }
+    pattern[p..].iter().all(|&byte| byte == b'*')
+}
+
+/// index just past the UTF-8 character that starts at `at`: the continuation bytes are `0b10xxxxxx`.
+fn char_end(text: &[u8], at: usize) -> usize {
+    let mut end = at + 1;
+    while end < text.len() && (text[end] & 0xC0) == 0x80 {
+        end += 1;
+    }
+    end
+}
+
 /// erases `name` inside the open directory `parent`. `st` is its stat, taken without following links.
 #[cfg(unix)]
 fn erase_entry(
@@ -302,15 +791,18 @@ fn erase_entry(
     st: &FileStat,
     shown: &Path,
     real: &Path,
+    walk: Walk<'_>,
     opts: &Options,
-) -> io::Result<()> {
+) -> io::Result<bool> {
     let kind = file_kind(st);
     if kind == SFlag::S_IFLNK {
-        unlinkat(parent, name, UnlinkatFlags::NoRemoveDir).map_err(io::Error::from)
+        unlinkat(parent, name, UnlinkatFlags::NoRemoveDir)
+            .map(|()| false)
+            .map_err(io::Error::from)
     } else if kind == SFlag::S_IFDIR {
-        erase_dir_at(parent, name, st, shown, real, opts)
+        erase_dir_at(parent, name, st, shown, real, walk, opts)
     } else if kind == SFlag::S_IFREG {
-        erase_file_at(parent, name, st, shown, opts)
+        erase_file_at(parent, name, st, shown, opts).map(|()| false)
     } else {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
@@ -326,8 +818,9 @@ fn erase_dir_at(
     st: &FileStat,
     shown: &Path,
     real: &Path,
+    walk: Walk<'_>,
     opts: &Options,
-) -> io::Result<()> {
+) -> io::Result<bool> {
     make_owner_accessible(parent, name, st, Mode::S_IRWXU)?;
     let dir = open_checked(
         parent,
@@ -335,42 +828,82 @@ fn erase_dir_at(
         OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
         st,
     )?;
-    erase_contents(&dir, st, shown, real, opts)?;
+    if erase_contents(&dir, st, shown, real, walk, opts)? {
+        return Ok(true);
+    }
     if opts.verbose {
         eprintln!("  removing directory {}", shown.display());
     }
-    remove_at(parent, name, true, shown)
+    remove_at(parent, name, true, shown).map(|()| false)
 }
 
 /// erases every entry of the open directory `dir`, whose stat is `dir_st`. a failing entry is
-/// reported and skipped, and the directory is kept.
+/// reported and skipped, and the directory is kept. returns true when an entry was kept because of
+/// `--exclude`, here or in a subdirectory; the caller then keeps this directory too.
 #[cfg(unix)]
 fn erase_contents(
     dir: &File,
     dir_st: &FileStat,
     shown: &Path,
     real: &Path,
+    walk: Walk<'_>,
     opts: &Options,
-) -> io::Result<()> {
+) -> io::Result<bool> {
     let names = list_names(dir)?;
     let mut failed = 0usize;
+    let mut excluded = 0usize;
+    let mut kept_inside = false;
     for name in &names {
         let entry = OsStr::from_bytes(name.to_bytes());
         let entry_shown = shown.join(entry);
         let entry_real = real.join(entry);
+        let entry_rel = walk.rel.join(entry);
+        // excluded entries are not walked, so an excluded directory is not walked either.
+        if is_excluded(walk.excludes, &entry_rel) {
+            excluded += 1;
+            log_skipped_at(walk.log, dir, name, &entry_shown, "excluded by --exclude");
+            continue;
+        }
+        let child = Walk {
+            rel: &entry_rel,
+            excludes: walk.excludes,
+            log: walk.log,
+        };
         let result = match fstatat(dir, name.as_c_str(), AtFlags::AT_SYMLINK_NOFOLLOW) {
             Ok(st) => match is_boundary(&st, dir_st, &entry_real) {
-                Ok(true) => Err(io::Error::other(
-                    "is a mount point or on another filesystem, skipped",
-                )),
-                Ok(false) => erase_entry(dir, name, &st, &entry_shown, &entry_real, opts),
-                Err(err) => Err(err),
+                Ok(true) => {
+                    let (kind, size) = stat_kind(&st);
+                    log_object(
+                        walk.log,
+                        &entry_shown,
+                        kind,
+                        size,
+                        Outcome::Skipped,
+                        "mount point or other filesystem, skipped",
+                    );
+                    Err(io::Error::other(
+                        "is a mount point or on another filesystem, skipped",
+                    ))
+                }
+                Ok(false) => erase_object(dir, name, &st, &entry_shown, &entry_real, child, opts),
+                Err(err) => Err(unseen(walk.log, &entry_shown, err)),
             },
-            Err(err) => Err(io::Error::from(err)),
+            Err(err) => Err(unseen(walk.log, &entry_shown, io::Error::from(err))),
         };
-        if let Err(err) = result {
-            eprintln!("{}: {err}", entry_shown.display());
-            failed += 1;
+        match result {
+            Ok(inside_kept) => kept_inside |= inside_kept,
+            Err(err) => {
+                // an interrupt ends the walk: the entries after this one are left as they are. only the
+                // innermost entry is named, the directories above it are not repeated.
+                if err.kind() == io::ErrorKind::Interrupted {
+                    if !is_directory_at(dir, name) {
+                        eprintln!("{}: {err}", entry_shown.display());
+                    }
+                    return Err(err);
+                }
+                eprintln!("{}: {err}", entry_shown.display());
+                failed += 1;
+            }
         }
     }
     if failed > 0 {
@@ -379,7 +912,13 @@ fn erase_contents(
             shown.display()
         )));
     }
-    Ok(())
+    if excluded > 0 {
+        eprintln!(
+            "kept {}: {excluded} entries excluded by --exclude",
+            shown.display()
+        );
+    }
+    Ok(excluded > 0 || kept_inside)
 }
 
 /// names in `dir` except `.` and `..`, read before anything is erased.
@@ -417,10 +956,11 @@ fn erase_file_at(
     shown: &Path,
     opts: &Options,
 ) -> io::Result<()> {
+    check_hard_links(shown, st.st_nlink > 1, opts)?;
     make_owner_accessible(parent, name, st, Mode::S_IWUSR)?;
     let hidden = hide_entry(parent, name, st, shown)?;
     overwrite_hidden(parent, &hidden, st, opts)
-        .map_err(|err| restore_name(parent, name, &hidden, shown, err))?;
+        .map_err(|err| keep_partly_overwritten(parent, name, &hidden, shown, err))?;
     remove_hidden(parent, name, &hidden, false, shown)
 }
 
@@ -569,6 +1109,20 @@ fn remove_hidden(
         .map_err(|err| restore_name(parent, name, hidden, shown, io::Error::from(err)))
 }
 
+/// renames the hidden entry back to `name`. on failure returns where the entry is now.
+#[cfg(unix)]
+fn put_back(parent: &File, name: &CStr, hidden: &CStr, shown: &Path) -> Result<(), PathBuf> {
+    // a name taken in the meantime is not replaced by the rename back.
+    let name_free = matches!(
+        fstatat(parent, name, AtFlags::AT_SYMLINK_NOFOLLOW),
+        Err(Errno::ENOENT)
+    );
+    if name_free && renameat(parent, hidden, parent, name).is_ok() {
+        return Ok(());
+    }
+    Err(shown.with_file_name(OsStr::from_bytes(hidden.to_bytes())))
+}
+
 /// puts a hidden entry back under `name` after a failed step. if that fails too, the error says
 /// where the entry is.
 #[cfg(unix)]
@@ -579,20 +1133,41 @@ fn restore_name(
     shown: &Path,
     err: io::Error,
 ) -> io::Error {
-    // a name taken in the meantime is not replaced by the rename back.
-    let name_free = matches!(
-        fstatat(parent, name, AtFlags::AT_SYMLINK_NOFOLLOW),
-        Err(Errno::ENOENT)
-    );
-    if name_free && renameat(parent, hidden, parent, name).is_ok() {
-        return err;
+    match put_back(parent, name, hidden, shown) {
+        Ok(()) => err,
+        Err(left) => io::Error::new(
+            err.kind(),
+            format!("{err}; the entry is left as {}", left.display()),
+        ),
     }
-    io::Error::other(format!(
-        "{err}; the entry is left as {}",
-        shown
-            .with_file_name(OsStr::from_bytes(hidden.to_bytes()))
-            .display()
-    ))
+}
+
+/// puts back a file whose overwrite failed. the error says the file is kept under its name, or where
+/// it is left.
+#[cfg(unix)]
+fn keep_partly_overwritten(
+    parent: &File,
+    name: &CStr,
+    hidden: &CStr,
+    shown: &Path,
+    err: io::Error,
+) -> io::Error {
+    match put_back(parent, name, hidden, shown) {
+        Ok(()) => io::Error::new(err.kind(), format!("{err}, the file is kept")),
+        Err(left) => io::Error::new(
+            err.kind(),
+            format!("{err}; the entry is left as {}", left.display()),
+        ),
+    }
+}
+
+/// true when `name` in `dir` is a directory, without following links.
+#[cfg(unix)]
+fn is_directory_at(dir: &File, name: &CStr) -> bool {
+    matches!(
+        fstatat(dir, name, AtFlags::AT_SYMLINK_NOFOLLOW),
+        Ok(st) if file_kind(&st) == SFlag::S_IFDIR
+    )
 }
 
 /// a random name that is free in `parent`. only ENOENT from fstatat on the directory counts as free.
@@ -620,8 +1195,9 @@ fn erase_file(path: &Path, opts: &Options) -> io::Result<()> {
     match open_for_overwrite(path) {
         Ok(mut file) => {
             // the length comes from the handle being overwritten, not from a second lookup by name.
-            let whole = 0..file.metadata()?.len();
-            overwrite(&mut file, std::slice::from_ref(&whole), opts)?;
+            let meta = file.metadata()?;
+            check_hard_links(path, link_count(&meta) > 1, opts)?;
+            overwrite_in_place(&mut file, meta.len(), opts)?;
             drop(file);
             remove_entry(path, opts)
         }
@@ -630,21 +1206,27 @@ fn erase_file(path: &Path, opts: &Options) -> io::Result<()> {
     }
 }
 
+/// why a locked file has no listed holder. code 5 is also an acl or delete-pending state, so it
+/// does not claim a lock; 32 and 33 are sharing and lock violations, held by something unlisted.
+#[cfg(windows)]
+fn no_holder_reason(err: &io::Error) -> &'static str {
+    match err.raw_os_error() {
+        Some(32 | 33) => {
+            "the file is in use, but no process is listed (a service, driver or antivirus may hold it)"
+        }
+        _ => {
+            "no lock holder was listed, so the file may be pending deletion or its permissions may deny access"
+        }
+    }
+}
+
 /// handles a file that another process holds open.
 #[cfg(windows)]
 fn erase_locked(path: &Path, opts: &Options, err: io::Error) -> io::Result<()> {
     let len = fs::metadata(path)?.len();
-    let holders = match windows::holders(path) {
-        Ok(holders) => holders,
-        Err(holders_err) => {
-            eprintln!(
-                "{}: could not list lock holders: {holders_err}",
-                path.display()
-            );
-            Vec::new()
-        }
-    };
-    for holder in &holders {
+    let listing = windows::holders(path);
+    let holders = listing.as_deref().unwrap_or_default();
+    for holder in holders {
         eprintln!(
             "{}: locked by {} (pid {})",
             path.display(),
@@ -669,76 +1251,58 @@ fn erase_locked(path: &Path, opts: &Options, err: io::Error) -> io::Result<()> {
 
         match open_for_overwrite(path) {
             Ok(mut file) => {
-                let whole = 0..len;
-                overwrite(&mut file, std::slice::from_ref(&whole), opts)?;
+                overwrite_in_place(&mut file, len, opts)?;
                 drop(file);
                 return remove_entry(path, opts);
             }
             Err(retry_err) => {
-                eprintln!(
-                    "{}: still locked after closing holders: {retry_err}",
-                    path.display()
-                );
+                // the forced shutdown can leave holders or let new ones open the file: list them again.
+                let remaining = windows::holders(path);
+                for holder in remaining.as_deref().unwrap_or_default() {
+                    eprintln!(
+                        "{}: still locked by {} (pid {})",
+                        path.display(),
+                        holder.name,
+                        holder.pid
+                    );
+                }
+                return Err(match &remaining {
+                    Ok(list) if list.is_empty() => {
+                        io::Error::other(format!("{retry_err}; {}", no_holder_reason(&retry_err)))
+                    }
+                    Ok(_) => {
+                        io::Error::other(format!("{retry_err}; still locked after closing holders"))
+                    }
+                    Err(list_err) => io::Error::other(format!(
+                        "{retry_err}; could not list lock holders: {list_err}"
+                    )),
+                });
             }
         }
     }
 
-    if opts.raw_volume {
-        // resolve the layout and open the volume (needs admin rights) before asking,
-        // so a missing privilege or a resident file fails before the user confirms
-        let layout = windows::physical_layout(path)?;
-        let mut volume = windows::open_volume_for_write(&layout.volume)?;
-        eprintln!("warning: {RAW_VOLUME_WARNING}");
-        if !holders.is_empty() {
-            eprintln!(
-                "warning: {} process(es) still hold the file and may write cached data back over the erased clusters",
-                holders.len()
-            );
+    Err(match &listing {
+        Ok(list) if list.is_empty() => {
+            io::Error::other(format!("{err}; {}", no_holder_reason(&err)))
         }
-        if !opts.force && !prompt::ask("continue with raw volume write?") {
-            return Err(io::Error::other("aborted, file is still locked"));
+        Ok(_) => io::Error::other(format!("{err}; use --kill-holders to erase it anyway")),
+        Err(list_err) => {
+            io::Error::other(format!("{err}; could not list lock holders: {list_err}"))
         }
-        // the file may have changed while the question was open: write only what was confirmed.
-        let fresh = windows::physical_layout(path)?;
-        if fresh.ranges != layout.ranges {
-            return Err(io::Error::other(
-                "the file changed while waiting for confirmation, nothing was written",
-            ));
-        }
-        let ranges: Vec<Range<u64>> = layout
-            .ranges
-            .iter()
-            .map(|range| range.offset..range.offset + range.len)
-            .collect();
-        overwrite(&mut volume, &ranges, opts).map_err(|err| {
-            if err.raw_os_error() == Some(5) {
-                io::Error::other(format!(
-                    "windows refused the direct write to {} (access denied): a mounted volume in use is not writable raw, and this tool does not lock or dismount volumes; the erase did not complete",
-                    layout.volume.display()
-                ))
-            } else {
-                err
-            }
-        })?;
-        drop(volume);
-        // a holder may have extended the file during the write; clusters outside the confirmed
-        // layout were not erased, so the name is not removed.
-        if windows::physical_layout(path)?.ranges != layout.ranges {
-            return Err(io::Error::other(
-                "the file changed during the raw volume write, its new clusters may still hold data",
-            ));
-        }
-        return remove_entry(path, opts);
-    }
+    })
+}
 
-    if holders.is_empty() {
-        return Err(io::Error::other(format!(
-            "{err}; no process holds the file, check its permissions"
-        )));
-    }
-    Err(io::Error::other(format!(
-        "{err}; use --kill-holders or --raw-volume to erase it anyway"
-    )))
+/// overwrites a file in place. windows does not rename it first, so an interrupted overwrite leaves
+/// the file under its name.
+#[cfg(windows)]
+fn overwrite_in_place(file: &mut File, len: u64, opts: &Options) -> io::Result<()> {
+    let whole = 0..len;
+    overwrite(file, std::slice::from_ref(&whole), opts).map_err(|err| {
+        io::Error::new(
+            err.kind(),
+            format!("{err}; the contents may be partly overwritten, the file is kept"),
+        )
+    })
 }
 
 #[cfg(windows)]
@@ -780,14 +1344,29 @@ fn remove_entry(path: &Path, opts: &Options) -> io::Result<()> {
 }
 
 fn overwrite(file: &mut File, ranges: &[Range<u64>], opts: &Options) -> io::Result<()> {
+    let size: u64 = ranges.iter().map(|range| range.end - range.start).sum();
+    let total = size.saturating_mul(u64::from(opts.passes));
+    let mut progress = Progress::new(Some(total), opts.quiet);
+    let result = overwrite_passes(file, ranges, opts, &mut progress);
+    progress.finish();
+    result
+}
+
+fn overwrite_passes(
+    file: &mut File,
+    ranges: &[Range<u64>],
+    opts: &Options,
+    progress: &mut Progress,
+) -> io::Result<()> {
     let mut buf = vec![0u8; BUFFER_SIZE];
     for pass in 0..opts.passes {
         let pattern = pattern_for_pass(pass, opts.passes);
         if opts.verbose {
+            progress.finish();
             eprintln!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
         }
         for range in ranges {
-            overwrite_range(file, range, pattern, &mut buf)?;
+            overwrite_range(file, range, pattern, &mut buf, progress)?;
         }
         file.sync_all()?;
     }
@@ -799,14 +1378,17 @@ fn overwrite_range(
     range: &Range<u64>,
     pattern: Pattern,
     buf: &mut [u8],
+    progress: &mut Progress,
 ) -> io::Result<()> {
     file.seek(SeekFrom::Start(range.start))?;
 
     let mut remaining = range.end - range.start;
     while remaining > 0 {
+        check_interrupted()?;
         let chunk = remaining.min(buf.len() as u64) as usize;
         fill(&mut buf[..chunk], pattern);
         file.write_all(&buf[..chunk])?;
+        progress.add(chunk as u64);
         remaining -= chunk as u64;
     }
     Ok(())
@@ -829,6 +1411,7 @@ fn make_writable(path: &Path, is_dir: bool) -> io::Result<()> {
             "refusing to change permissions of a symbolic link",
         ));
     }
+    // cloud and dedup reparse points get their readonly flag cleared before open_for_erase refuses them.
     let mut perms = fs::metadata(path)?.permissions();
     if !perms.readonly() {
         return Ok(());
@@ -878,7 +1461,12 @@ fn unlink_with_random_name(path: &Path, is_dir: bool) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::log::test_support::{Memory, Torn};
     use std::fs::OpenOptions;
+
+    fn erase_path(path: &Path, opts: &Options) -> io::Result<()> {
+        super::erase_path(path, opts, &[], None).map(|_| ())
+    }
 
     fn options(passes: u32) -> Options {
         Options {
@@ -886,7 +1474,8 @@ mod tests {
             verbose: false,
             force: true,
             kill_holders: false,
-            raw_volume: false,
+            allow_protected: false,
+            quiet: true,
         }
     }
 
@@ -894,6 +1483,75 @@ mod tests {
         let path = dir.join(name);
         fs::write(&path, data).unwrap();
         path
+    }
+
+    #[test]
+    fn second_signal_is_the_call_that_finds_the_flag_set() {
+        let flag = AtomicBool::new(false);
+
+        assert!(!record_interrupt(&flag));
+        assert!(record_interrupt(&flag));
+    }
+
+    #[test]
+    fn interrupted_object_is_logged_once_however_many_parents_stop() {
+        let memory = Memory::default();
+        let log = Log::new(Path::new("erase.log"), 1, Box::new(memory.clone()));
+        let interrupted = || -> io::Result<bool> {
+            Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "interrupted by signal",
+            ))
+        };
+
+        log_done(
+            Some(&log),
+            Path::new("dir/a.txt"),
+            Kind::File,
+            5,
+            &interrupted(),
+            false,
+            "",
+        );
+        log_done(
+            Some(&log),
+            Path::new("dir"),
+            Kind::Dir,
+            0,
+            &interrupted(),
+            false,
+            "",
+        );
+
+        let text = memory.text();
+        assert_eq!(text.lines().count(), 1, "{text}");
+        assert!(text.contains("\"path\":\"dir/a.txt\""));
+        assert!(text.contains("\"result\":\"error\",\"detail\":\"interrupted\""));
+    }
+
+    #[test]
+    fn erase_stops_after_a_log_line_cannot_be_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("tree");
+        fs::create_dir(&tree).unwrap();
+        for name in ["a", "b", "c"] {
+            write_file(&tree, name, b"data");
+        }
+        let log = Log::new(
+            Path::new("erase.log"),
+            1,
+            Box::new(Torn {
+                memory: Memory::default(),
+                room: 0,
+            }),
+        );
+
+        let result = super::erase_path(&tree, &options(1), &[], Some(&log));
+
+        assert!(result.is_err());
+        assert!(log.failed());
+        // the first object was erased before its line failed; the other two were not touched.
+        assert_eq!(fs::read_dir(&tree).unwrap().count(), 2);
     }
 
     #[test]
@@ -917,6 +1575,7 @@ mod tests {
             &(0..len),
             Pattern::Zeros,
             &mut vec![0u8; BUFFER_SIZE],
+            &mut Progress::new(None, true),
         )
         .unwrap();
         drop(file);
@@ -939,6 +1598,7 @@ mod tests {
             &(0..len),
             Pattern::Random,
             &mut vec![0u8; BUFFER_SIZE],
+            &mut Progress::new(None, true),
         )
         .unwrap();
         drop(file);
@@ -1064,6 +1724,21 @@ mod tests {
         assert_eq!(fs::read(&target).unwrap(), b"keep me");
     }
 
+    #[test]
+    fn hard_link_rule_refuses_only_hard_links_under_root() {
+        assert_eq!(hard_link_rule(true, true, false), HardLinkRule::Refuse);
+        assert_eq!(
+            hard_link_rule(true, true, true),
+            HardLinkRule::EraseWithWarning
+        );
+        assert_eq!(hard_link_rule(true, false, false), HardLinkRule::Erase);
+        assert_eq!(hard_link_rule(true, false, true), HardLinkRule::Erase);
+        assert_eq!(hard_link_rule(false, false, false), HardLinkRule::Erase);
+        assert_eq!(hard_link_rule(false, false, true), HardLinkRule::Erase);
+        assert_eq!(hard_link_rule(false, true, false), HardLinkRule::Erase);
+        assert_eq!(hard_link_rule(false, true, true), HardLinkRule::Erase);
+    }
+
     #[cfg(unix)]
     #[test]
     fn symlink_inside_tree_does_not_erase_outside_target() {
@@ -1079,5 +1754,87 @@ mod tests {
 
         assert!(!tree.exists());
         assert_eq!(fs::read(&outside_file).unwrap(), b"keep me");
+    }
+
+    #[test]
+    fn glob_star_matches_any_run_but_not_a_slash() {
+        assert!(glob_match(b"*.o", b"main.o"));
+        assert!(glob_match(b"*", b"anything"));
+        assert!(glob_match(b"a*c", b"ac"));
+        assert!(glob_match(b"a*c", b"abbbc"));
+        assert!(!glob_match(b"a*c", b"abd"));
+        assert!(!glob_match(b"*.o", b"src/main.o"));
+        assert!(glob_match(b"*a*b", b"xaab"));
+        assert!(!glob_match(b"*a*b", b"xaba"));
+    }
+
+    #[test]
+    fn glob_question_matches_one_byte_but_not_a_slash() {
+        assert!(glob_match(b"?.txt", b"a.txt"));
+        assert!(!glob_match(b"?.txt", b"ab.txt"));
+        assert!(!glob_match(b"?.txt", b"/.txt"));
+        assert!(!glob_match(b"a?b", b"a/b"));
+    }
+
+    #[test]
+    fn glob_question_matches_one_utf8_character() {
+        assert!(glob_match("?.txt".as_bytes(), "ä.txt".as_bytes()));
+        assert!(!glob_match("??.txt".as_bytes(), "ä.txt".as_bytes()));
+        assert!(glob_match("?".as_bytes(), "ö".as_bytes()));
+        assert!(!glob_match("?".as_bytes(), "/".as_bytes()));
+        assert!(glob_match("a*b".as_bytes(), "aäöb".as_bytes()));
+        assert!(glob_match("*ö*".as_bytes(), "xöy".as_bytes()));
+    }
+
+    #[test]
+    fn glob_other_bytes_match_literally() {
+        assert!(glob_match(b"file.txt", b"file.txt"));
+        assert!(!glob_match(b"file.txt", b"fileXtxt"));
+        assert!(glob_match(b"a[b]", b"a[b]"));
+        assert!(!glob_match(b"a[b]", b"ab"));
+    }
+
+    #[test]
+    fn pattern_without_slash_matches_the_name_at_any_depth() {
+        let patterns = ["*.log".to_owned()];
+
+        assert!(is_excluded(&patterns, Path::new("a.log")));
+        assert!(is_excluded(&patterns, Path::new("sub/deeper/a.log")));
+        assert!(!is_excluded(&patterns, Path::new("sub/a.logx")));
+    }
+
+    #[test]
+    fn pattern_with_slash_matches_the_path_from_the_argument() {
+        let patterns = ["src/*.o".to_owned()];
+
+        assert!(is_excluded(&patterns, Path::new("src/main.o")));
+        assert!(!is_excluded(&patterns, Path::new("main.o")));
+        assert!(!is_excluded(&patterns, Path::new("other/src/main.o")));
+        assert!(!is_excluded(&patterns, Path::new("src/deeper/main.o")));
+    }
+
+    #[test]
+    fn command_line_argument_is_never_excluded() {
+        let patterns = ["*".to_owned(), "build".to_owned()];
+
+        assert!(!is_excluded(&patterns, Path::new("")));
+    }
+
+    #[test]
+    fn excluded_directory_is_skipped_with_its_contents() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("tree");
+        let skipped = tree.join("skip");
+        fs::create_dir_all(&skipped).unwrap();
+        let inside = write_file(&skipped, "inside.txt", b"keep me");
+        let erased = write_file(&tree, "gone.txt", b"gone");
+        let excludes = ["skip".to_owned()];
+
+        let kept = super::erase_path(&tree, &options(1), &excludes, None).unwrap();
+
+        assert!(kept);
+        assert_eq!(fs::read(&inside).unwrap(), b"keep me");
+        assert!(!erased.exists());
+        assert!(tree.exists());
     }
 }

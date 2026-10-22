@@ -10,6 +10,8 @@ set -euo pipefail
 bin=$1
 mnt=$2
 kind=$3
+# statfs reports smb2 for smb 2.x and later, so cifs also matches smb2.
+case "$kind" in cifs) warn_kind='(cifs|smb2)' ;; *) warn_kind=$kind ;; esac
 
 fail() {
     echo "FAIL: $1" >&2
@@ -21,11 +23,11 @@ head -c 65536 /dev/urandom > "$probe"
 
 dry=$("$bin" --dry-run "$probe" 2>&1) || fail "dry run failed: $dry"
 echo "$dry"
-grep -q "$kind is a network filesystem" <<<"$dry" || fail "no network warning for $kind"
+grep -Eq "$warn_kind is a network filesystem" <<<"$dry" || fail "no network warning for $kind"
 
 erase=$("$bin" -f "$probe" 2>&1) || fail "erase failed: $erase"
 echo "$erase"
-grep -q "$kind is a network filesystem" <<<"$erase" || fail "erase did not warn for $kind"
+grep -Eq "$warn_kind is a network filesystem" <<<"$erase" || fail "erase did not warn for $kind"
 [ ! -e "$probe" ] || fail "file still present after erase"
 
 set +e

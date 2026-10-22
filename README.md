@@ -55,9 +55,15 @@ protected system locations are refused for erasing and for `--wipe-free`: `/bin`
 `/usr`, `/etc`, `/boot`, `/lib`, `/lib64`, `/dev`, `/proc`, `/sys`, `/System` and `/Library` on
 unix (also under their resolved paths, such as `/private/etc` on macos), the windows system
 folders and the root of a filesystem. the directories `/var`, `/opt`, `/Volumes` and `/private`
-are protected as directories only: the files inside them can be erased. a link to one of them can
-still be removed as a link.
-a bind mount of one of them is refused too.
+are protected as directories only: the files inside them can be erased.
+
+your home directory (`$HOME` or the passwd entry on unix, `%USERPROFILE%` on windows) is refused
+for erasing as a directory, but the files inside it can be erased. `--wipe-free` does not refuse it,
+because it changes no existing files.
+
+a link to a protected directory can still be removed as a link. a bind mount of one of them is
+refused too. paths are compared by device and inode on unix, so a different spelling (`/USR/bin`
+on a case-insensitive macos volume) does not get around the check.
 
 `--i-know-what-i-am-doing` allows erasing and filling protected locations. a warning is printed
 each time it is used, and `-f` does not allow them. the filesystem root itself stays refused: it has

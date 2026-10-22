@@ -54,8 +54,14 @@ is erased through a bind mount that could not be seen.
 protected system locations are refused for erasing and for `--wipe-free`: `/bin`, `/sbin`,
 `/usr`, `/etc`, `/boot`, `/lib`, `/lib64`, `/dev`, `/proc`, `/sys`, `/System` and `/Library` on
 unix (also under their resolved paths, such as `/private/etc` on macos), the windows system
-folders and the root of a filesystem. a link to one of them can still be removed as a link.
+folders and the root of a filesystem. the directories `/var`, `/opt`, `/Volumes` and `/private`
+are protected as directories only: the files inside them can be erased. a link to one of them can
+still be removed as a link.
 a bind mount of one of them is refused too.
+
+`--i-know-what-i-am-doing` allows erasing and filling protected locations. a warning is printed
+each time it is used, and `-f` does not allow them. the filesystem root itself stays refused: it has
+no name that could be removed.
 
 ## limitations
 
@@ -63,7 +69,8 @@ overwriting does not guarantee that data is unrecoverable on every device or
 filesystem. ssd wear leveling, copy-on-write filesystems (apfs, btrfs, zfs),
 journaling, snapshots, backups and caches can keep old copies of the data.
 for ssds, full-disk encryption (filevault, bitlocker, luks) is the more
-reliable approach.
+reliable approach. on linux the tool reads sysfs and warns when the device is flash; on macos and
+windows it does not check.
 
 hard links share one copy of the data, so erasing one name erases the content
 for all of them. a hard link inside a tree to a protected file is erased like any other file,

@@ -1,0 +1,58 @@
+name: network filesystems
+
+# manual only: needs the kernel nfs and cifs clients and a samba server, which the
+# containers used for local testing do not allow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mounts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2.9.3
+
+      - name: build binary
+        run: cargo build --locked
+
+      - name: install nfs and samba
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-kernel-server nfs-common cifs-utils samba
+
+      - name: mount nfs export on localhost
+        run: |
+          d="$RUNNER_TEMP/nfs"
+          mkdir -p "$d/export" "$d/mnt"
+          echo "$d/export 127.0.0.1(rw,sync,no_subtree_check,no_root_squash,insecure)" | sudo tee /etc/exports
+          sudo exportfs -ra
+          sudo systemctl restart nfs-server
+          sudo mount -t nfs -o vers=4.2 127.0.0.1:"$d/export" "$d/mnt"
+          findmnt -T "$d/mnt" -no FSTYPE
+
+      - name: mount samba share on localhost
+        run: |
+          d="$RUNNER_TEMP/smb"
+          mkdir -p "$d/share" "$d/mnt"
+          printf '\n[share]\n   path = %s\n   guest ok = yes\n   read only = no\n   force user = root\n' "$d/share" | sudo tee -a /etc/samba/smb.conf
+          sudo systemctl restart smbd
+          sudo mount -t cifs -o guest,vers=3.0 //127.0.0.1/share "$d/mnt"
+          findmnt -T "$d/mnt" -no FSTYPE
+
+      - name: check nfs
+        run: sudo bash tests/network/network_fs.sh target/debug/sudo-mudo-apt-opt-gop-stop-remove "$RUNNER_TEMP/nfs/mnt" nfs
+
+      - name: check cifs
+        run: sudo bash tests/network/network_fs.sh target/debug/sudo-mudo-apt-opt-gop-stop-remove "$RUNNER_TEMP/smb/mnt" cifs
+
+      - name: unmount
+        if: always()
+        run: |
+          sudo umount "$RUNNER_TEMP/nfs/mnt" || true
+          sudo umount "$RUNNER_TEMP/smb/mnt" || true

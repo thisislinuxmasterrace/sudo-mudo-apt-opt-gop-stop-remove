@@ -205,3 +205,20 @@ fn zero_passes_is_rejected() {
     assert!(!out.status.success());
     assert!(file.exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn protected_path_needs_the_override_flag() {
+    let refused = run(&["--dry-run", "/usr/bin/env"], "");
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("protected system path"));
+
+    let allowed = run(
+        &["--dry-run", "--i-know-what-i-am-doing", "/usr/bin/env"],
+        "",
+    );
+    assert!(allowed.status.success());
+    assert!(
+        String::from_utf8_lossy(&allowed.stderr).contains("--i-know-what-i-am-doing was given")
+    );
+}

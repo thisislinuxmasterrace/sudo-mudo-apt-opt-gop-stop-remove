@@ -287,7 +287,7 @@ fn mount_points() -> io::Result<&'static HashSet<PathBuf>> {
 
 /// mountinfo escapes space, tab, newline and backslash as octal sequences.
 #[cfg(target_os = "linux")]
-fn unescape_mountinfo(path: &str) -> String {
+pub(crate) fn unescape_mountinfo(path: &str) -> String {
     path.replace("\\040", " ")
         .replace("\\011", "\t")
         .replace("\\012", "\n")

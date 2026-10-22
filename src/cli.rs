@@ -46,4 +46,8 @@ pub struct Cli {
     /// overwrite a locked file through the raw volume, needs administrator (windows only)
     #[arg(long)]
     pub raw_volume: bool,
+
+    /// allow erasing protected system paths; a warning is printed every time. -f does not imply it
+    #[arg(long = "i-know-what-i-am-doing")]
+    pub allow_protected: bool,
 }

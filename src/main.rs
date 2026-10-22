@@ -50,9 +50,16 @@ fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCode {
     // validate every path before touching any file: one bad path aborts the whole run.
     let mut invalid = false;
     for path in paths {
-        if let Err(err) = safety::validate_target(path, cli.recursive) {
-            eprintln!("{NAME}: {err}");
-            invalid = true;
+        match safety::validate_target(path, cli.recursive, cli.allow_protected) {
+            Ok(true) => eprintln!(
+                "{NAME}: warning: {}: protected system path, erasing it because --i-know-what-i-am-doing was given",
+                path.display()
+            ),
+            Ok(false) => {}
+            Err(err) => {
+                eprintln!("{NAME}: {err}");
+                invalid = true;
+            }
         }
     }
     if invalid {
@@ -104,9 +111,16 @@ fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCode {
 }
 
 fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
-    if let Err(err) = safety::validate_wipe_dir(dir) {
-        eprintln!("{NAME}: {err}");
-        return ExitCode::FAILURE;
+    match safety::validate_wipe_dir(dir, cli.allow_protected) {
+        Ok(true) => eprintln!(
+            "{NAME}: warning: {}: protected system path, filling it because --i-know-what-i-am-doing was given",
+            dir.display()
+        ),
+        Ok(false) => {}
+        Err(err) => {
+            eprintln!("{NAME}: {err}");
+            return ExitCode::FAILURE;
+        }
     }
 
     if storage::is_network(dir) {

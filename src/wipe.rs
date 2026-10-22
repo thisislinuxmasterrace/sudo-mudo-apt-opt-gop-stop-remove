@@ -134,7 +134,9 @@ fn create_temp(path: &Path) -> io::Result<File> {
     use windows_sys::Win32::Foundation::GENERIC_WRITE;
     use windows_sys::Win32::Storage::FileSystem::{DELETE, FILE_FLAG_DELETE_ON_CLOSE};
 
+    // std rejects create_new without write(true) before it looks at access_mode, which sets the real rights.
     OpenOptions::new()
+        .write(true)
         .access_mode(GENERIC_WRITE | DELETE)
         .create_new(true)
         .custom_flags(FILE_FLAG_DELETE_ON_CLOSE)

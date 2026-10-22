@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
 
       - name: install rust 1.88
-        uses: dtolnay/rust-toolchain@1.88
+        uses: dtolnay/rust-toolchain@1.120
 
       - name: check
         run: cargo check --all-targets --locked

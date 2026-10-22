@@ -5,8 +5,15 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # rand 0.10 removed RngCore and changed ThreadRng; the code targets 0.9 until it is ported.
+      - dependency-name: "rand"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # the rust-toolchain pin is the msrv (1.88); it is changed by hand, not by dependabot.
+      - dependency-name: "dtolnay/rust-toolchain"

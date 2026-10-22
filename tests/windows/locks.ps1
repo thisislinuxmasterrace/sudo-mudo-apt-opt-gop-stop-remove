@@ -173,19 +173,20 @@ try {
             return
         }
         $file = New-RandomFile 'raw-volume.bin'
+        $hashBefore = Get-Sha256 $file
         $null = Start-Holder -Path $file -Share ([System.IO.FileShare]::Read) -Name 'raw-volume'
         $result = Invoke-Binary @('--raw-volume', '-f', $file)
         Show-Result $Name $result
-        # weak: only the tool's message and the surviving file are asserted.
-        # the message says contents are erased, so it is the only evidence the
-        # raw overwrite ran. byte changes are not compared here on purpose.
+        # windows refuses direct writes to a mounted volume that is in use, and the tool does
+        # not lock or dismount it. the expected result is that refusal, with the file untouched.
         $text = "$($result.Stdout)$($result.Stderr)"
-        $messageOk = $text.Contains('contents are erased') -and $text.Contains('not scheduled for deletion at reboot')
+        $refused = $text.Contains('refused the direct write')
         $exists = Test-Path -LiteralPath $file
-        if ($result.ExitCode -ne 0 -and $messageOk -and $exists) {
-            Add-Result $Name 'PASS' 'exit non-zero, reboot-deletion message shown, file kept'
+        $unchanged = (Get-Sha256 $file) -eq $hashBefore
+        if ($result.ExitCode -ne 0 -and $refused -and $exists -and $unchanged) {
+            Add-Result $Name 'PASS' 'exit non-zero, direct write refused, file kept, bytes unchanged'
         } else {
-            Add-Result $Name 'FAIL' "exit $($result.ExitCode), message shown: $messageOk, file kept: $exists"
+            Add-Result $Name 'FAIL' "exit $($result.ExitCode), refusal shown: $refused, file kept: $exists, bytes unchanged: $unchanged"
         }
     }
 }

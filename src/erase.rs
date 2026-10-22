@@ -710,7 +710,16 @@ fn erase_locked(path: &Path, opts: &Options, err: io::Error) -> io::Result<()> {
             .iter()
             .map(|range| range.offset..range.offset + range.len)
             .collect();
-        overwrite(&mut volume, &ranges, opts)?;
+        overwrite(&mut volume, &ranges, opts).map_err(|err| {
+            if err.raw_os_error() == Some(5) {
+                io::Error::other(format!(
+                    "windows refused the direct write to {} (access denied): a mounted volume in use is not writable raw, and this tool does not lock or dismount volumes; the erase did not complete",
+                    layout.volume.display()
+                ))
+            } else {
+                err
+            }
+        })?;
         drop(volume);
         // a holder may have extended the file during the write; clusters outside the confirmed
         // layout were not erased, so the name is not removed.

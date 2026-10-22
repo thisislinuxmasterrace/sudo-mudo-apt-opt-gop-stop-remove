@@ -104,6 +104,9 @@ a file held open by another program is not erased by default.
   layout is checked again after the question, and nothing is written if it changed.
   a process that still holds the file can write its cached data back over the erased
   clusters; the tool lists such processes before the question.
+  on a mounted volume that is in use, windows refuses direct writes (access denied). this tool
+  does not lock or dismount volumes, so `--raw-volume` currently fails there and erases nothing:
+  it is not a working option yet.
 
 if the file still cannot be deleted after its contents are erased, you are asked
 whether to delete it at the next reboot. with `-f` nothing is scheduled and the

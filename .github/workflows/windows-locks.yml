@@ -1,0 +1,32 @@
+name: windows locks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  locks:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2.9.3
+
+      - name: build release binary
+        run: cargo build --release --locked
+
+      # the raw-volume scenario needs an elevated shell. on a github runner that is not
+      # elevated it fails instead of being skipped (check the first run's log).
+      - name: locked file scenarios
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/windows/locks.ps1 -Binary target\release\sudo-mudo-apt-opt-gop-stop-remove.exe

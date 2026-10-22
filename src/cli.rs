@@ -7,8 +7,12 @@ use clap::Parser;
 #[command(version, about)]
 pub struct Cli {
     /// files to erase
-    #[arg(required = true)]
+    #[arg(required_unless_present = "wipe_free", conflicts_with = "wipe_free")]
     pub paths: Vec<PathBuf>,
+
+    /// erase the free space of the filesystem that holds this directory
+    #[arg(long, value_name = "DIR")]
+    pub wipe_free: Option<PathBuf>,
 
     /// erase directories and their contents
     #[arg(short, long)]
@@ -27,7 +31,7 @@ pub struct Cli {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// do not ask for confirmation
+    /// do not ask any questions (confirmation, lock holders, raw volume, reboot)
     #[arg(short, long)]
     pub force: bool,
 

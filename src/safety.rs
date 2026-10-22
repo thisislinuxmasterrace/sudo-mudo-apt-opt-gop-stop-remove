@@ -40,6 +40,23 @@ pub fn validate_target(path: &Path, recursive: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// checks that `path` is a directory outside protected locations, as required by `--wipe-free`.
+/// a symlink to a directory is accepted: only the filesystem behind it is used, nothing is removed.
+pub fn validate_wipe_dir(path: &Path) -> Result<(), String> {
+    let meta = fs::metadata(path).map_err(|err| format!("{}: {err}", path.display()))?;
+    if !meta.is_dir() {
+        return Err(format!("{}: not a directory", path.display()));
+    }
+    let location = fs::canonicalize(path).map_err(|err| format!("{}: {err}", path.display()))?;
+    if is_protected(&location) {
+        return Err(format!(
+            "{}: refusing to fill a protected system path",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
 /// resolved location of the entry itself. for a symlink this is the link's own
 /// location, not its target's, because the link is what gets removed.
 fn location_of(path: &Path, is_symlink: bool) -> io::Result<PathBuf> {
@@ -60,7 +77,32 @@ fn is_protected(location: &Path) -> bool {
     if path.parent().is_none() {
         return true;
     }
-    protected_roots().iter().any(|root| path.starts_with(root))
+    protected_roots().iter().any(|root| path.starts_with(root)) || is_protected_by_identity(&path)
+}
+
+/// catches a protected directory reached through another name, such as a bind mount of `/usr`
+/// at `~/x`: the paths differ, the directory is the same. only the given directory is compared,
+/// not the directories below it.
+#[cfg(unix)]
+fn is_protected_by_identity(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    // symlink_metadata: a link to a protected directory is not the directory and may be removed.
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !meta.is_dir() {
+        return false;
+    }
+    protected_roots().iter().any(|root| {
+        fs::metadata(root)
+            .is_ok_and(|root_meta| root_meta.dev() == meta.dev() && root_meta.ino() == meta.ino())
+    })
+}
+
+#[cfg(not(unix))]
+fn is_protected_by_identity(_path: &Path) -> bool {
+    false
 }
 
 /// canonical forms of protected locations, comparable with `is_protected` input.
@@ -88,7 +130,7 @@ fn platform_protected_roots() -> Vec<PathBuf> {
 
 #[cfg(windows)]
 fn platform_protected_roots() -> Vec<PathBuf> {
-    [
+    let mut roots: Vec<PathBuf> = [
         "SystemRoot",
         "ProgramFiles",
         "ProgramFiles(x86)",
@@ -97,7 +139,14 @@ fn platform_protected_roots() -> Vec<PathBuf> {
     .iter()
     .filter_map(std::env::var_os)
     .map(PathBuf::from)
-    .collect()
+    .collect();
+    // without SystemRoot the windows directory is still protected through the system drive.
+    if std::env::var_os("SystemRoot").is_none()
+        && let Some(drive) = std::env::var_os("SystemDrive")
+    {
+        roots.push(PathBuf::from(drive).join("Windows"));
+    }
+    roots
 }
 
 /// `fs::canonicalize` returns `\\?\C:\...` on windows; strip it so paths compare with `C:\...`.
@@ -164,6 +213,16 @@ mod tests {
         let system_root = PathBuf::from(std::env::var_os("SystemRoot").unwrap());
         let canonical = fs::canonicalize(&system_root).unwrap();
         assert!(is_protected(&canonical));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn link_to_a_protected_directory_can_be_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("usr-link");
+        std::os::unix::fs::symlink("/usr", &link).unwrap();
+
+        assert!(validate_target(&link, false).is_ok());
     }
 
     #[cfg(unix)]

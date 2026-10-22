@@ -13,10 +13,11 @@ use windows_sys::Win32::Foundation::{
     ERROR_HANDLE_EOF, ERROR_MORE_DATA, ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    DELETE, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_SPARSE_FILE, FILE_DISPOSITION_FLAG_DELETE,
-    FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO_EX, FILE_READ_ATTRIBUTES,
-    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FileDispositionInfoEx, GetDiskFreeSpaceW,
-    GetVolumePathNameW, MOVEFILE_DELAY_UNTIL_REBOOT, MoveFileExW, SetFileInformationByHandle,
+    DELETE, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE,
+    FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO_EX,
+    FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, FileDispositionInfoEx, GetDiskFreeSpaceW, GetVolumePathNameW,
+    MOVEFILE_DELAY_UNTIL_REBOOT, MoveFileExW, SetFileInformationByHandle,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
 use windows_sys::Win32::System::Ioctl::{
@@ -50,6 +51,7 @@ pub struct Holder {
 }
 
 /// a byte range on a volume, offset and length in bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ByteRange {
     pub offset: u64,
     pub len: u64,
@@ -86,18 +88,34 @@ pub fn close_holders(path: &Path) -> io::Result<Vec<Holder>> {
 
 /// opens `path` for overwriting, with read, write and delete access.
 pub fn open_for_erase(path: &Path) -> io::Result<File> {
-    OpenOptions::new()
+    // open the entry itself, not a link it may have been replaced with since the check
+    let file = OpenOptions::new()
         .access_mode(ERASE_ACCESS)
         .share_mode(SHARE_ALL)
-        .open(path)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::other(
+            "entry is a link or reparse point (for example a cloud file), refusing to overwrite it",
+        ));
+    }
+    Ok(file)
 }
 
-/// opens `path` with delete access only, for `posix_delete`.
+/// opens `path` with delete access only, for `posix_delete`. the entry itself is opened, so a
+/// link swapped in for the file is never followed: deleting the target would reach outside the tree.
 pub fn open_for_delete(path: &Path) -> io::Result<File> {
-    OpenOptions::new()
-        .access_mode(DELETE)
+    let file = OpenOptions::new()
+        .access_mode(DELETE | FILE_READ_ATTRIBUTES)
         .share_mode(SHARE_ALL)
-        .open(path)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::other(
+            "entry is a link or reparse point, not deleting it through a handle",
+        ));
+    }
+    Ok(file)
 }
 
 /// removes the directory entry at once. the file must have been opened with delete access.
@@ -136,6 +154,16 @@ pub fn physical_layout(path: &Path) -> io::Result<PhysicalLayout> {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "not a regular file",
+        ));
+    }
+    if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(unsupported(
+            "link, junction, dedup or cloud file: its data is not mapped here",
+        ));
+    }
+    if crate::storage::shares_clusters(&canonical) {
+        return Err(unsupported(
+            "refs file: its clusters may be shared with other files",
         ));
     }
     if meta.file_attributes() & (FILE_ATTRIBUTE_COMPRESSED | FILE_ATTRIBUTE_SPARSE_FILE) != 0 {
@@ -370,6 +398,11 @@ fn collect_ranges(file: &File, cluster: u64) -> io::Result<Vec<ByteRange>> {
             break;
         }
         let (first_vcn, extents) = parse_retrieval(&buf)?;
+        if first_vcn != vcn {
+            return Err(invalid_data(
+                "retrieval started at a different vcn than requested",
+            ));
+        }
         if extents.is_empty() {
             if status == ERROR_MORE_DATA {
                 return Err(invalid_data("retrieval reported more data but no extents"));

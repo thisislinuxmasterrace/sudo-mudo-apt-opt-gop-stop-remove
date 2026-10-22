@@ -32,7 +32,19 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: test
-        run: cargo test --all-targets
+        run: cargo test --all-targets --locked
+
+  msrv:
+    name: msrv (rust 1.88)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: install rust 1.88
+        uses: dtolnay/rust-toolchain@1.88
+
+      - name: check
+        run: cargo check --all-targets --locked

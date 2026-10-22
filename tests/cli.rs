@@ -166,6 +166,35 @@ fn windows_only_flags_are_rejected_elsewhere() {
     assert!(file.exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn symlink_with_trailing_slash_is_not_followed() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("target");
+    fs::create_dir(&target).unwrap();
+    let kept = write_file(&target, "keep.txt");
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let with_slash = format!("{}/", path_str(&link));
+
+    let out = run(&["-r", "-f", with_slash.as_str()], "");
+
+    assert!(out.status.success());
+    assert!(kept.exists());
+    assert!(fs::symlink_metadata(&link).is_err());
+}
+
+#[test]
+fn wipe_free_rejects_a_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "a.txt");
+
+    let out = run(&["--wipe-free", path_str(&file), "-f"], "");
+
+    assert!(!out.status.success());
+    assert!(file.exists());
+}
+
 #[test]
 fn zero_passes_is_rejected() {
     let dir = tempfile::tempdir().unwrap();

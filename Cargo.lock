@@ -295,6 +295,7 @@ name = "sudo-mudo-apt-opt-gop-stop-remove"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "libc",
  "nix",
  "rand",
  "tempfile",

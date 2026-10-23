@@ -75,6 +75,13 @@ pub struct Cli {
     #[arg(long, value_name = "FILE", conflicts_with = "wipe_free")]
     pub log: Option<PathBuf>,
 
+    /// after the last pass, read the file back and compare it with what was written; a file that differs is kept
+    ///
+    /// the read goes through the same handle as the overwrite, and the kernel's cache for the file is dropped
+    /// first on linux. a match does not prove the old data is gone. not for devices yet, and not with --wipe-free.
+    #[arg(long, conflicts_with = "wipe_free")]
+    pub verify: bool,
+
     /// do not ask any questions (confirmation, lock holders, reboot)
     #[arg(short, long)]
     pub force: bool,

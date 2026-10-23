@@ -30,6 +30,7 @@ sudo-mudo-apt-opt-gop-stop-remove -n 3 disk-dump.img   # three overwrite passes 
 sudo-mudo-apt-opt-gop-stop-remove -f notes.txt         # ask no questions, warnings are still shown
 sudo-mudo-apt-opt-gop-stop-remove -r build/            # erase a directory tree
 sudo-mudo-apt-opt-gop-stop-remove --dry-run notes.txt  # only show what would be erased
+sudo-mudo-apt-opt-gop-stop-remove --verify -f notes.txt  # read the last pass back and compare it
 sudo-mudo-apt-opt-gop-stop-remove -r --exclude '*.o' --exclude .git project/  # skip matching entries
 sudo-mudo-apt-opt-gop-stop-remove -0 --files-from list.bin                    # paths from a nul-separated list
 sudo-mudo-apt-opt-gop-stop-remove --log erase.jsonl -r build/                 # json lines log of every object
@@ -87,9 +88,9 @@ windows it does not check.
 
 hard links share one copy of the data, so erasing one name erases the content
 for all of them. running as root, a hard-linked file is not erased by default, whether it is
-given directly or found inside a tree, because other names may point to the same data. the tool
-refuses it with exit code 4 and says why. `--i-know-what-i-am-doing` erases it anyway, with a
-warning. the rule covers root only, because an ordinary user can already change those files.
+given directly or found inside a tree, because other names may point to the same data. a file given
+directly is refused with exit code 1 before anything is erased; a file found inside a tree is refused
+with exit code 4 and the tree is kept. `--i-know-what-i-am-doing` erases it anyway, with a warning. the rule covers root only, because an ordinary user can already change those files.
 on unix the summary lists hard-linked files. on windows the link count is not read, so the rule
 does not apply there and hard links are not detected: the summary does not list them.
 
@@ -202,6 +203,28 @@ wrong name is refused (exit code 3). `-f` skips this check.
 the name must match exactly. spaces at the start and end of what is typed are removed, so a name that
 starts or ends with spaces cannot be confirmed.
 
+## verify
+
+`--verify` reads each file back after the last overwrite pass and compares it with what was written.
+the last pass writes pseudo-random bytes from a random seed (not written to disk), so the check can
+reproduce them and read the file in any order. only the last pass is checked: the earlier passes
+(zeros, ones and random) are not read back, and the file is read once, after its last pass.
+
+- a match erases the file as usual. a mismatch keeps the file under its name, prints
+  `verify failed: contents differ after the last pass, the file is kept` and ends the run with exit
+  code 4. the other paths are still erased.
+- the read uses the same open file as the overwrite, after the data is synced. on linux the kernel's
+  cache for the file is dropped first, as a hint. on other systems the read may come from the cache,
+  so the check is weaker there.
+- a match does not prove that the old data is gone. ssds, copy-on-write filesystems, caches and remapped
+  blocks can keep an older copy that the check does not see. the note printed at the start of every
+  run with `--verify` says so.
+- the file is opened for reading as well as writing, so the owner's read bit is added when it is
+  missing, as the write bit is for any erase. a kept file keeps that bit.
+- not for devices yet: a device is refused with exit code 1 before anything is done, also with
+  `--dry-run`. not with `--wipe-free`, which is an argument error (exit code 2). for files, `--dry-run`
+  ignores it and no note is printed.
+
 ## lists of paths
 
 `--files-from <FILE>` adds the paths listed in a file, one per line, to the ones on the command line.
@@ -265,10 +288,10 @@ cargo run --example gen_docs -- completions bash target/docs
 | code | meaning |
 | --- | --- |
 | 0 | everything was erased; a dry run (also with `--json`); `--wipe-free` finished; `--help` or `--version`; directories kept because of `--exclude` |
-| 1 | a path or the request was refused before anything was erased: a missing file, a directory without `-r`, a protected path, a special file, a mount point given as a target, `--wipe-free` on a file or on a network, fuse or unrecognized filesystem (also on bsd), a log that exists or lies inside the tree, an unreadable `--files-from` file, or an empty list when no other path is given |
-| 2 | bad command line: an unknown flag, no paths, `-n 0`, an empty path argument (`""`), an empty `--exclude` pattern (`''`), an `--exclude` pattern that is `.` or absolute, `--json` without `--dry-run`, `--exclude` without `-r`, `--null` without `--files-from`, `--kill-holders` outside windows, paths, `--files-from`, `--log`, `--exclude` or `--json` together with `--wipe-free` |
+| 1 | a path or the request was refused before anything was erased: a missing file, a directory without `-r`, a protected path, a special file, a mount point given as a target, a hard-linked file under root given as a path, `--verify` on a device, `--wipe-free` on a file or on a network, fuse or unrecognized filesystem (also on bsd), a log that exists or lies inside the tree, an unreadable `--files-from` file, or an empty list when no other path is given |
+| 2 | bad command line: an unknown flag, no paths, `-n 0`, an empty path argument (`""`), an empty `--exclude` pattern (`''`), an `--exclude` pattern that is `.` or absolute, `--json` without `--dry-run`, `--exclude` without `-r`, `--null` without `--files-from`, `--kill-holders` outside windows, paths, `--files-from`, `--log`, `--exclude`, `--json` or `--verify` together with `--wipe-free` |
 | 3 | the confirmation was declined: an answer other than `y` or `yes`, no input at all, or a wrong name for a large erase, and the same for the question of `--wipe-free`. a signal that arrives before the first path is erased, `-f` included, also ends with `aborted` and this code. a signal that arrives while a question is open is not caught: it kills the process, and the tool has no exit code for it |
-| 4 | the operation did not complete: at least one path was not erased (a hard-linked file under root is refused too, and so is a file whose deletion at reboot was declined), a log line could not be written, `--wipe-free` wrote nothing or failed, or the erase was interrupted by ctrl+c or sigterm (`interrupted:` is printed) |
+| 4 | the operation did not complete: at least one path was not erased (a hard-linked file under root found inside a tree is refused too, and so is a file whose deletion at reboot was declined), a log line could not be written, a `--verify` mismatch (the file is kept), `--wipe-free` wrote nothing or failed, or the erase was interrupted by ctrl+c or sigterm (`interrupted:` is printed) |
 | 130 | a second ctrl+c or sigterm: the tool exits at once, without restoring the name of the file being erased |
 
 with `-f` there is no question, so code 3 cannot come from a declined question. when stdin is not a

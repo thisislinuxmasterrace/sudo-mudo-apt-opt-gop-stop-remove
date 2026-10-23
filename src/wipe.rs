@@ -223,6 +223,7 @@ mod tests {
             kill_holders: false,
             allow_protected: false,
             quiet: true,
+            verify: false,
         }
     }
 

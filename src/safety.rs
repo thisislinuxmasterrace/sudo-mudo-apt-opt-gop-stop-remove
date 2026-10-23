@@ -54,6 +54,7 @@ pub fn validate_target(
 /// the home directory is not checked: filling its free space changes no existing file.
 /// a symlink to a directory is accepted: only the filesystem behind it is used, nothing is removed.
 pub fn validate_wipe_dir(path: &Path, allow_protected: bool) -> Result<bool, String> {
+    // follows a symlink on purpose: the filesystem behind the link is the one that gets filled.
     let meta = fs::metadata(path).map_err(|err| format!("{}: {err}", path.display()))?;
     if !meta.is_dir() {
         return Err(format!("{}: not a directory", path.display()));
@@ -167,7 +168,8 @@ fn is_protected_by_identity(_path: &Path) -> bool {
     false
 }
 
-/// device and inode of a path, following links. `None` when it does not exist.
+/// device and inode of a path, following links. `None` when it does not exist. the protected roots
+/// are directories, and the ancestors of a canonical location are real directories, so following is safe here.
 #[cfg(unix)]
 fn identity(path: &Path) -> Option<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;

@@ -1,4 +1,5 @@
 mod cli;
+mod device;
 mod erase;
 mod json;
 mod log;
@@ -8,6 +9,7 @@ mod progress;
 mod prompt;
 mod safety;
 mod storage;
+mod verify;
 mod wipe;
 
 use std::collections::HashSet;
@@ -33,6 +35,9 @@ const EXIT_INCOMPLETE: u8 = 4;
 const STRICT_OBJECTS: u64 = 1000;
 const STRICT_BYTES: u64 = 10 * 1024 * 1024 * 1024;
 
+// the confirmation lists this many paths in full; the rest are counted, so a long list stays readable.
+const LISTED_PATHS: usize = 20;
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
@@ -56,6 +61,7 @@ fn main() -> ExitCode {
         kill_holders: cli.kill_holders,
         allow_protected: cli.allow_protected,
         quiet: cli.quiet,
+        verify: cli.verify,
     };
 
     let mut given = cli.paths.clone();
@@ -185,6 +191,15 @@ fn target_is_mount_point(_path: &Path) -> bool {
 }
 
 fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCode {
+    match device::is_device_run(paths) {
+        Ok(true) => return device::run(paths, cli, opts),
+        Ok(false) => {}
+        Err(err) => {
+            eprintln!("{NAME}: {err}");
+            return ExitCode::from(EXIT_INVALID);
+        }
+    }
+
     // validate every path before touching any file: one bad path aborts the whole run.
     let mut invalid = false;
     for path in paths {
@@ -195,6 +210,10 @@ fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCode {
                         "{NAME}: warning: {}: protected system path, erasing it because --i-know-what-i-am-doing was given",
                         path.display()
                     );
+                }
+                if let Err(err) = erase::validate_hard_link(path, cli.allow_protected) {
+                    eprintln!("{NAME}: {err}");
+                    invalid = true;
                 }
                 if target_is_mount_point(path) {
                     invalid = true;
@@ -252,6 +271,11 @@ fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCode {
     eprintln!(
         "note: overwriting does not guarantee erasure on ssds, with snapshots, or on copy-on-write filesystems"
     );
+    if cli.verify {
+        eprintln!(
+            "note: --verify reads the data back and compares it; a match does not prove the old data is gone (ssd, copy-on-write, caches and remapped blocks are not checked)"
+        );
+    }
     if erase::running_as_root()
         && !cli.allow_protected
         && total.as_ref().is_some_and(|total| total.hard_linked > 0)
@@ -490,15 +514,23 @@ fn strict_paths<'a>(
 
 /// with no strict path the run asks "continue?". with strict paths the names come first, and
 /// "continue?" follows when some path was not named, so the whole run is confirmed.
+/// the header carries the number of paths, so it is still known when the list is cut.
 fn confirm(
     paths: &[PathBuf],
     summary: &[String],
     passes: u32,
     strict: &[(&PathBuf, &preview::Summary)],
 ) -> bool {
-    eprintln!("the following will be irreversibly erased ({passes} passes):");
-    for path in paths {
+    let noun = if paths.len() == 1 { "path" } else { "paths" };
+    eprintln!(
+        "the following {} {noun} will be irreversibly erased ({passes} passes):",
+        paths.len()
+    );
+    for path in paths.iter().take(LISTED_PATHS) {
         eprintln!("  {}", path.display());
+    }
+    if paths.len() > LISTED_PATHS {
+        eprintln!("  ... and {} more", paths.len() - LISTED_PATHS);
     }
     for line in summary {
         eprintln!("  {line}");

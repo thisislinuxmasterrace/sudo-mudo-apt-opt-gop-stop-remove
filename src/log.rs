@@ -19,6 +19,12 @@ pub enum Kind {
     Link,
     /// fifos, sockets and devices, and entries that could not be inspected.
     Other,
+    /// a whole disk erased as a block device (linux only for now).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Device,
+    /// a partition erased as a block device (linux only for now).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Partition,
 }
 
 impl Kind {
@@ -28,6 +34,8 @@ impl Kind {
             Kind::Dir => "dir",
             Kind::Link => "link",
             Kind::Other => "other",
+            Kind::Device => "device",
+            Kind::Partition => "partition",
         }
     }
 }
@@ -74,7 +82,7 @@ struct Identity(u64, u64);
 /// the open log of one run. each line is written and flushed on its own.
 pub struct Log {
     path: PathBuf,
-    /// the overwrite passes of the run. written for regular files only.
+    /// the overwrite passes of the run. written for regular files and devices only.
     passes: u32,
     sink: RefCell<Box<dyn Sink>>,
     /// length of the complete lines written so far. a line that failed half way is cut back to it.
@@ -117,7 +125,11 @@ impl Log {
         if self.failed.get() {
             return;
         }
-        let passes = if kind == Kind::File { self.passes } else { 0 };
+        let passes = if matches!(kind, Kind::File | Kind::Device | Kind::Partition) {
+            self.passes
+        } else {
+            0
+        };
         let line = line(path, kind, size, passes, outcome, detail);
         let mut sink = self.sink.borrow_mut();
         match sink.write_all(line.as_bytes()).and_then(|()| sink.flush()) {

@@ -7,7 +7,7 @@ when you really want to delete something
 a command-line tool that irreversibly erases files: it overwrites their
 contents (one pass by default, `-n` for more), then deletes them. works on windows, macos and linux.
 
-> **status:** early development.
+> **status:** early development. you probably shouldn't use it yet.
 
 ## install
 
@@ -142,14 +142,36 @@ erasing files does not guarantee that their data is gone from the device:
 - snapshots and backups keep older versions of the files, which this tool does not reach. `--wipe-free`
   has the same limits, because it writes only through the filesystem.
 
-this tool does not erase a whole device: it does not touch partitions, the partition table or space
-outside the filesystems it is given. for a disk that leaves your hands, use an external tool:
+this tool can erase a whole disk or a partition on linux (see erasing devices below), but it does not
+reach ssds, the drive's own erase commands or the space outside the device it is given. for a disk that
+leaves your hands, on linux or elsewhere, consider an external tool:
 
 - nwipe (linux) and ShredOS (a bootable image) wipe whole disks. both overwrite the disk or use the
   drive's own erase commands; check their documentation for what they do on your drive.
 - the drive's own secure erase, through the vendor's tool.
 - on macos, rely on the volume encryption from the limitations section (filevault), enabled before the
   data was written, instead of overwriting.
+
+## erasing devices
+
+only on linux for now. on macos and windows a device path is refused with exit code 1.
+
+- a device path is a block device: a whole disk (`/dev/sdb`) or a partition (`/dev/sdb1`). character
+  devices and symbolic links to devices are refused, except links under `/dev/disk/` (by-id, by-uuid and
+  the like) that resolve to a block device. name the device path itself.
+- devices cannot be mixed with files in one run, and `-r` does not apply to them.
+- before anything is written, the tool refuses a device that is mounted (the disk or any of its
+  partitions), used as swap, held by another device (lvm, md, device-mapper), of zero size, or not a
+  hard disk (ssds and unknown media are refused). virtual devices (device-mapper, md, loop) are refused.
+  if btrfs or zfs is mounted anywhere on the system, a device is refused too, because a multi-device
+  filesystem may use it.
+- `--i-know-what-i-am-doing` lifts the refusals above (except the virtual devices and the zero size),
+  printing a warning for each one. it never lifts the confirmation.
+- the confirmation asks you to type the exact device path. `-f` does not skip it, and it needs a
+  terminal: without one the run is refused with exit code 3.
+- writes bypass the page cache (`O_DIRECT`) and are synced after each pass. a device that is partly
+  written cannot be restored: an interrupt leaves it partly erased.
+- this code has not been tested on real disks yet.
 
 ## wiping free space
 

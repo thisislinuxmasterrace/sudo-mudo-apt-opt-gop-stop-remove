@@ -1,26 +1,26 @@
 #!/bin/bash
-# ручной сценарий для macOS: обход с -r не должен заходить в bind mount и трогать его источник.
+# manual check for macos: a walk with -r must not enter a bind mount or touch its source.
 #
-# что проверяет:
-#   A. --dry-run -r: код 0; сводка пропускает точку монтирования ("skipped mount points or other
-#      filesystems: 1") и считает только own.txt (files: 1, directories: 1); содержимое source в сводку
-#      не попадает; ничего не изменилось.
-#   B. -f -r: код 4 (tree не стёрт, потому что внутри него пропущена точка монтирования); own.txt удалён;
-#      bind остался каталогом и точкой монтирования; keep-a.txt и keep-b.txt есть, sha256 не изменился.
+# what it checks:
+#   A. --dry-run -r: exit 0; the summary skips the mount point ("skipped mount points or other
+#      filesystems: 1") and counts only own.txt (files: 1, directories: 1); the contents of source
+#      are not counted; nothing changes.
+#   B. -f -r: exit 4 (tree is kept because a mount point inside it was skipped); own.txt is removed;
+#      bind is still a directory and a mount point; keep-a.txt and keep-b.txt are there, sha256 unchanged.
 #
-# требования:
-#   - запускает только владелец, только на macOS. сценарий монтирует каталог и вызывает erase в своём
-#     временном каталоге. на linux он не работает: mount_nullfs есть только в macOS, сценарий сразу выходит.
-#   - mount_nullfs встроен в macOS, macFUSE не нужен.
-#   - нужен sudo: mount_nullfs и umount выполняются от root. sudo спрашивается один раз (sudo -v) в начале.
-#   - в EXIT (и при INT/TERM) сценарий размонтирует bind-точку через sudo umount и удаляет свой временный
-#     каталог (mktemp, внутри $TMPDIR или /var/folders). если размонтировать не удалось, каталог не удаляется:
-#     rm -rf пошёл бы через живую точку монтирования.
-#   - совместим с bash 3.2 (стандартный bash macOS).
+# requirements:
+#   - run by hand, on macos only. the script mounts a directory and runs erase inside its own temporary
+#     directory. on linux it exits at once: mount_nullfs exists only on macos.
+#   - mount_nullfs ships with macos, macfuse is not needed.
+#   - sudo is needed: mount_nullfs and umount run as root. sudo asks once at the start (sudo -v).
+#   - on EXIT (and on INT/TERM) the script unmounts the bind point with sudo umount and removes its own
+#     temporary directory (mktemp, under $TMPDIR or /var/folders). if the unmount fails, the directory is
+#     kept: rm -rf would otherwise go through a live mount point.
+#   - compatible with bash 3.2 (the default bash on macos).
 #
-# запуск: tests/manual/macos_bind_mount.sh [путь/к/бинарнику]
-#   по умолчанию: target/release/sudo-mudo-apt-opt-gop-stop-remove от корня репозитория.
-#   сборка: cargo build --release
+# usage: tests/manual/macos_bind_mount.sh [path/to/binary]
+#   default: target/release/sudo-mudo-apt-opt-gop-stop-remove from the repository root.
+#   build first: cargo build --release
 
 set -euo pipefail
 
@@ -34,7 +34,7 @@ tmp_canon=""
 fails=""
 
 die() {
-    echo "ошибка: $*" >&2
+    echo "error: $*" >&2
     exit 1
 }
 
@@ -63,10 +63,10 @@ safe_work() {
 cleanup() {
     local status=$?
     if is_mounted "$bind"; then
-        echo "размонтирую $bind" >&2
+        echo "unmounting $bind" >&2
         if ! sudo umount "$bind"; then
-            echo "не удалось размонтировать $bind: сделайте это вручную (sudo umount \"$bind\")" >&2
-            echo "каталог $work не удалён, пока точка монтирования жива" >&2
+            echo "could not unmount $bind: unmount it by hand (sudo umount \"$bind\")" >&2
+            echo "directory $work is kept while the mount point is alive" >&2
             exit "$status"
         fi
     fi
@@ -74,7 +74,7 @@ cleanup() {
         if safe_work; then
             rm -rf "$work"
         else
-            echo "не удаляю $work: путь не похож на временный каталог этого сценария" >&2
+            echo "not removing $work: the path does not look like this script's temporary directory" >&2
         fi
     fi
     exit "$status"
@@ -83,20 +83,20 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-[ "$(uname -s)" = Darwin ] || die "сценарий только для macOS (mount_nullfs есть только там)"
-[ -x /sbin/mount_nullfs ] || die "нет /sbin/mount_nullfs"
-[ -x "$BIN" ] || die "нет исполняемого бинарника: $BIN (сначала: cargo build --release)"
+[ "$(uname -s)" = Darwin ] || die "this script is for macos only (mount_nullfs exists only there)"
+[ -x /sbin/mount_nullfs ] || die "/sbin/mount_nullfs not found"
+[ -x "$BIN" ] || die "executable not found: $BIN (build first: cargo build --release)"
 
-echo "нужен sudo: mount_nullfs и umount выполняются от root" >&2
-sudo -v || die "sudo отказал: без него точка монтирования не создаётся"
+echo "sudo is needed: mount_nullfs and umount run as root" >&2
+sudo -v || die "sudo refused: the mount point cannot be created without it"
 
 tmp_base=${TMPDIR:-/tmp}
 tmp_base=${tmp_base%/}
-tmp_canon=$(cd "$tmp_base" && pwd -P) || die "не открывается $tmp_base"
+tmp_canon=$(cd "$tmp_base" && pwd -P) || die "cannot open $tmp_base"
 work=$(mktemp -d "$tmp_canon/macos-bind-mount.XXXXXX")
 work=$(cd "$work" && pwd -P)
-safe_work || die "временный каталог вне ожидаемого места: $work"
-echo "рабочий каталог: $work"
+safe_work || die "temporary directory is outside the expected location: $work"
+echo "working directory: $work"
 
 mkdir -p "$work/source" "$work/tree/bind"
 printf 'keep-a\n' > "$work/source/keep-a.txt"
@@ -110,31 +110,32 @@ hash_b=$(shasum -a 256 "$work/source/keep-b.txt" | cut -d' ' -f1)
 check_sources() {
     local label=$1
     [ "$(shasum -a 256 "$work/source/keep-a.txt" 2>/dev/null | cut -d' ' -f1)" = "$hash_a" ] \
-        || fail "$label: keep-a.txt изменился или пропал"
+        || fail "$label: keep-a.txt changed or is missing"
     [ "$(shasum -a 256 "$work/source/keep-b.txt" 2>/dev/null | cut -d' ' -f1)" = "$hash_b" ] \
-        || fail "$label: keep-b.txt изменился или пропал"
+        || fail "$label: keep-b.txt changed or is missing"
 }
 
-echo "монтирую $work/source в $bind (mount_nullfs)"
+echo "mounting $work/source on $bind (mount_nullfs)"
 if ! sudo mount_nullfs "$work/source" "$bind"; then
-    die "mount_nullfs не сработал"
+    die "mount_nullfs failed"
 fi
-is_mounted "$bind" || die "после mount_nullfs $bind не виден в таблице монтирования"
+is_mounted "$bind" || die "after mount_nullfs $bind is not listed in the mount table"
 
 echo
 echo "== A: --dry-run -r $work/tree"
 code=0
 out_a=$("$BIN" --dry-run -r "$work/tree" 2>&1) || code=$?
 echo "$out_a"
-echo "код выхода: $code (ожидался 0)"
-[ "$code" -eq 0 ] || fail "dry run: код $code, ожидался 0"
+echo "exit code: $code (expected 0)"
+[ "$code" -eq 0 ] || fail "dry run: exit $code, expected 0"
+# anchored at the end of the line so that ": 1" does not also match ": 10"
 grep -q 'skipped mount points or other filesystems: 1$' <<< "$out_a" \
-    || fail "dry run: нет строки «skipped mount points or other filesystems: 1» (проверяется до конца строки, чтобы не совпасть с «: 10»)"
+    || fail "dry run: no line \"skipped mount points or other filesystems: 1\""
 case "$out_a" in
     *"files: 1, directories: 1, links: 0, "*) ;;
-    *) fail "dry run: сводка не «files: 1, directories: 1» (bind или содержимое source учтены)" ;;
+    *) fail "dry run: summary is not \"files: 1, directories: 1\" (the bind mount or the source contents were counted)" ;;
 esac
-[ -f "$work/tree/own.txt" ] || fail "dry run: own.txt пропал, хотя dry run ничего не меняет"
+[ -f "$work/tree/own.txt" ] || fail "dry run: own.txt is gone, but a dry run must not change anything"
 check_sources "dry run"
 
 echo
@@ -142,13 +143,13 @@ echo "== B: -f -r $work/tree (erase)"
 code=0
 out_b=$("$BIN" -f -r "$work/tree" 2>&1) || code=$?
 echo "$out_b"
-echo "код выхода: $code (ожидался 4: tree сохранён, пропущена точка монтирования)"
-[ "$code" -eq 4 ] || fail "erase: код $code, ожидался 4"
+echo "exit code: $code (expected 4: tree is kept, the mount point inside it was skipped)"
+[ "$code" -eq 4 ] || fail "erase: exit $code, expected 4"
 check_sources "erase"
-[ ! -e "$work/tree/own.txt" ] || fail "erase: own.txt не удалён"
-[ -d "$work/tree" ] || fail "erase: tree пропал, хотя внутри него пропущена точка монтирования"
-[ -d "$bind" ] || fail "erase: bind пропал"
-is_mounted "$bind" || fail "erase: bind больше не точка монтирования"
+[ ! -e "$work/tree/own.txt" ] || fail "erase: own.txt was not removed"
+[ -d "$work/tree" ] || fail "erase: tree is gone, but a mount point inside it was skipped"
+[ -d "$bind" ] || fail "erase: bind is gone"
+is_mounted "$bind" || fail "erase: bind is no longer a mount point"
 
 echo
 if [ -n "$fails" ]; then

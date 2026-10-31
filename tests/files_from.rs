@@ -64,6 +64,63 @@ fn null_separated_list_erases_each_path() {
 }
 
 #[test]
+fn crlf_list_erases_each_path_and_skips_blank_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let lists = tempfile::tempdir().unwrap();
+    let first = write_file(dir.path(), "a.txt");
+    let second = write_file(dir.path(), "b.txt");
+    let list = write_bytes(
+        lists.path(),
+        "list.txt",
+        format!("{}\r\n\r\n{}\r\n", path_str(&first), path_str(&second)).as_bytes(),
+    );
+
+    let out = run(&["-f", "--files-from", path_str(&list)], "");
+
+    assert_exit(&out, 0);
+    assert!(!first.exists());
+    assert!(!second.exists());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("note: 2 paths read from"));
+}
+
+#[test]
+fn list_without_a_final_line_break_still_loses_a_trailing_cr() {
+    let dir = tempfile::tempdir().unwrap();
+    let lists = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "a.txt");
+    let list = write_bytes(
+        lists.path(),
+        "list.txt",
+        format!("{}\r", path_str(&file)).as_bytes(),
+    );
+
+    let out = run(&["-f", "--files-from", path_str(&list)], "");
+
+    assert_exit(&out, 0);
+    assert!(!file.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn null_separated_list_keeps_a_cr_at_the_end_of_a_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let lists = tempfile::tempdir().unwrap();
+    let plain = write_file(dir.path(), "x.txt");
+    let odd = write_file(dir.path(), "x.txt\r");
+    let list = write_bytes(
+        lists.path(),
+        "list.bin",
+        format!("{}\0", path_str(&odd)).as_bytes(),
+    );
+
+    let out = run(&["-f", "-0", "--files-from", path_str(&list)], "");
+
+    assert_exit(&out, 0);
+    assert!(!odd.exists());
+    assert!(plain.exists());
+}
+
+#[test]
 fn empty_files_from_erases_nothing_and_exits_with_one() {
     let dir = tempfile::tempdir().unwrap();
     let lists = tempfile::tempdir().unwrap();

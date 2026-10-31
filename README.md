@@ -77,6 +77,54 @@ on a case-insensitive macos volume) does not get around the check.
 each time it is used, and `-f` does not allow them. the filesystem root itself stays refused: it has
 no name that could be removed.
 
+## examples
+
+secret files (`.env`, keys, dumps): look first, then erase.
+
+```sh
+sudo-mudo-apt-opt-gop-stop-remove --dry-run .env id_ed25519 dump.sql   # what would be erased
+sudo-mudo-apt-opt-gop-stop-remove .env id_ed25519 dump.sql             # asks before erasing
+```
+
+a build directory, keeping what you want to keep. entries that match `--exclude` are not touched, and the
+directories that hold them stay:
+
+```sh
+sudo-mudo-apt-opt-gop-stop-remove -r --exclude '*.lock' --exclude .git build/
+```
+
+a list of paths from `find`, in a script. a list on stdin needs `-f`, because the question would also
+read stdin; check the plan first with a dry run if you want to:
+
+```sh
+find build -name '*.tmp' -print0 | sudo-mudo-apt-opt-gop-stop-remove -f -0 --files-from -
+find build -name '*.tmp' -print0 | sudo-mudo-apt-opt-gop-stop-remove --dry-run --json -0 --files-from - | jq .objects
+```
+
+cron and ci have no terminal, so they need `-f`. the exit code tells what happened (see exit codes):
+
+```sh
+sudo-mudo-apt-opt-gop-stop-remove -q -f -r /srv/scratch/old-run
+case $? in
+  0) echo erased ;;
+  4) echo "not everything was erased" ;;
+  *) echo "refused or failed" ;;
+esac
+```
+
+a record of what was erased, for handing over a machine or a directory. `--log` refuses a file that exists:
+
+```sh
+sudo-mudo-apt-opt-gop-stop-remove -r --verify --log erase-$(date +%F).jsonl old-project/
+```
+
+old data in the unused space of a volume, after the files are already deleted:
+
+```sh
+sudo-mudo-apt-opt-gop-stop-remove --dry-run --wipe-free /home    # shows the space it would fill
+sudo-mudo-apt-opt-gop-stop-remove --wipe-free /home
+```
+
 ## limitations
 
 overwriting does not guarantee that data is unrecoverable on every device or
@@ -253,8 +301,9 @@ reproduce them and read the file in any order. only the last pass is checked: th
 `-` reads them from stdin. with `-0` (or `--null`) the entries are separated by nul bytes, as
 `find -print0` writes them.
 
-- a line is taken as it is: spaces belong to the path, and a `\r` at the end of a line stays in it,
-  so a crlf list does not match the files.
+- a line is taken as it is: spaces belong to the path. one `\r` before the line break is dropped, so a
+  list with windows line endings (crlf) works. with `-0` nothing is dropped: a `\r` at the end of an
+  entry belongs to the name.
 - empty entries are skipped. the number of paths read is printed.
 - `-` without `-f` is an argument error (exit code 2), refused before stdin is read, because the answer to the question cannot come from stdin. with `--dry-run` it is allowed.
 - an unreadable list, or on windows a path that is not utf-8, is refused (exit code 1). on unix a

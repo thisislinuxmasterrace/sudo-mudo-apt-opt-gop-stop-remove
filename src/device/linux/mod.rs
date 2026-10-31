@@ -153,12 +153,12 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         }
     }
 
-    let _interrupts = match crate::start_interrupt_guard() {
+    let _interrupts = match crate::run::start_interrupt_guard() {
         Ok(guard) => guard,
         Err(code) => return code,
     };
     let log_file = match &cli.log {
-        Some(path) => match crate::open_log(path, cli.passes, paths) {
+        Some(path) => match crate::run::open_log(path, cli.passes, paths) {
             Ok(log) => {
                 // the location was checked before the confirmation; the mount table may have changed since.
                 if let Err(err) = check_log_location(path, &targets, &states) {

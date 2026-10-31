@@ -93,6 +93,15 @@ fn help_and_version_exit_with_zero() {
     assert_exit(&run(&["--version"], ""), 0);
 }
 
+#[test]
+fn help_lists_examples_and_exit_codes() {
+    let out = run(&["--help"], "");
+
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("examples:"));
+    assert!(text.contains("exit codes: 0 done"));
+}
+
 #[cfg(not(windows))]
 #[test]
 fn windows_only_flags_are_rejected_elsewhere() {

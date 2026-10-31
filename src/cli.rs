@@ -2,9 +2,20 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+const EXAMPLES: &str = "\
+examples:
+  erase a file, after a question:        sudo-mudo-apt-opt-gop-stop-remove notes.txt
+  look first, change nothing:            sudo-mudo-apt-opt-gop-stop-remove --dry-run -r build/
+  a tree, keeping some entries:          sudo-mudo-apt-opt-gop-stop-remove -r --exclude .git build/
+  paths from find, in a script:          find . -name '*.tmp' -print0 | sudo-mudo-apt-opt-gop-stop-remove -f -0 --files-from -
+  with a record of what was erased:      sudo-mudo-apt-opt-gop-stop-remove -r --log erase.jsonl build/
+  the free space of a volume:            sudo-mudo-apt-opt-gop-stop-remove --wipe-free /home
+
+exit codes: 0 done, 1 refused before erasing, 2 bad arguments, 3 declined, 4 not finished, 130 second ctrl+c.";
+
 /// irreversibly erase files: overwrite their contents, then delete them.
 #[derive(Debug, Parser)]
-#[command(version, about)]
+#[command(version, about, after_help = EXAMPLES)]
 pub struct Cli {
     /// files to erase, in addition to the ones read with --files-from
     #[arg(
@@ -15,8 +26,9 @@ pub struct Cli {
 
     /// read more paths to erase from FILE, one per line; `-` reads stdin
     ///
-    /// a line is taken as it is: spaces are part of the path, and a `\r` at the end of a line is kept.
-    /// empty lines are skipped. the paths are added to the ones given on the command line.
+    /// a line is taken as it is: spaces are part of the path. a `\r` before the line break is dropped, so a
+    /// list with windows line endings works. empty lines are skipped. the paths are added to the ones given
+    /// on the command line.
     #[arg(long, value_name = "FILE", conflicts_with = "wipe_free")]
     pub files_from: Option<PathBuf>,
 

@@ -4,7 +4,7 @@
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 
-use rand::RngCore;
+use rand::Rng;
 
 use crate::erase::check_interrupted;
 

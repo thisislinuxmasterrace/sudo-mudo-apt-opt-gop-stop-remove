@@ -1,6 +1,6 @@
 //! the overwrite patterns: the bytes each pass writes, and the fill of a buffer with them.
 
-use rand::RngCore;
+use rand::Rng;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Pattern {

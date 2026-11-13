@@ -55,7 +55,7 @@ run by hand or by a ci job, outside `cargo test`:
 | `network-fs.yml` | manual | mounts nfs and samba on localhost and runs `tests/network/network_fs.sh` |
 | `release.yml` | `v*` tags, manual | clippy and tests, then binaries for linux x86_64, macos arm64, macos x86_64 and windows x86_64. a tag push also publishes a github release with `SHA256SUMS`; a manual run builds but does not release |
 
-dependabot opens weekly update prs for cargo and github actions. rand 0.x major and minor updates are ignored (0.9 to 0.10 is breaking), and `dtolnay/rust-toolchain` is ignored because the msrv pin is changed by hand. actions are pinned to versions; check node versions before bumping.
+dependabot opens weekly update prs for cargo and github actions. rand 0.x major and minor updates are ignored (each minor of a 0.x crate is breaking; the code targets 0.10), and `dtolnay/rust-toolchain` is ignored because the msrv pin is changed by hand. actions are pinned to versions; check node versions before bumping.
 
 ## conventions
 

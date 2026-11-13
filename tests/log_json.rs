@@ -278,3 +278,55 @@ fn json_with_wipe_free_is_an_argument_error() {
 
     assert_exit(&out, 2);
 }
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_paths_stay_distinct_in_dry_run_and_log() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    use std::process::Command;
+
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join(OsStr::from_bytes(b"a\xffb"));
+    let second = dir.path().join(OsStr::from_bytes(b"a\xfeb"));
+    let plain = write_file(dir.path(), "plain.txt");
+    for path in [&first, &second] {
+        fs::write(path, b"data").unwrap();
+    }
+    let hex = |path: &Path| {
+        path.as_os_str()
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    let first_hex = hex(&first);
+    let second_hex = hex(&second);
+    let dry = Command::new(BIN)
+        .args(["--dry-run", "--json"])
+        .args([&plain, &first, &second])
+        .output()
+        .unwrap();
+    assert_exit(&dry, 0);
+    let text = String::from_utf8(dry.stdout).unwrap();
+    assert!(text.contains(&format!(
+        "\"path_bytes\":[null,\"{first_hex}\",\"{second_hex}\"]"
+    )));
+    assert!(first.exists() && second.exists());
+
+    let log = dir.path().join("erase.log");
+    let erased = Command::new(BIN)
+        .args(["-f", "--log"])
+        .arg(&log)
+        .args([&plain, &first, &second])
+        .output()
+        .unwrap();
+    assert_exit(&erased, 0);
+    let lines = log_lines(&log);
+    assert_eq!(lines.len(), 3);
+    assert!(!lines[0].contains("path_bytes"));
+    for (line, expected) in lines[1..].iter().zip([first_hex, second_hex]) {
+        assert!(line.contains(&format!("\"path_bytes\":\"{expected}\"")));
+    }
+    assert!(!first.exists() && !second.exists());
+}

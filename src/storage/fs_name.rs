@@ -80,8 +80,8 @@ fn magic_bits(raw: i64) -> u64 {
 pub(super) fn filesystem_name(path: &Path) -> Option<String> {
     use nix::sys::statfs::statfs;
 
-    #[allow(clippy::useless_conversion)]
-    let raw = i64::from(statfs(path).ok()?.filesystem_type().0);
+    #[allow(clippy::unnecessary_cast)]
+    let raw = statfs(path).ok()?.filesystem_type().0 as i64;
     match magic_name(magic_bits(raw))? {
         "fuse" => mount_fs_type(path),
         name => Some(name.to_owned()),

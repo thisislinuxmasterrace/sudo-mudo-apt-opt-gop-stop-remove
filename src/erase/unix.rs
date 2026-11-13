@@ -1,19 +1,19 @@
 //! unix erase: walks a tree through open directory descriptors and erases each entry.
 //! entries are stat'ed, opened and renamed relative to a descriptor, never by a full path. files and
-//! directories are opened with an identity check; links and emptied directories are removed by name
-//! without one. `real` (canonicalized parent plus names) is used only for mount lookups.
+//! directories are opened with an identity check, and every entry is renamed to a hidden name and
+//! checked again before it is deleted. `real` (the path of the opened parent plus names) is used only
+//! for mount lookups.
 
 use std::ffi::{CStr, CString, OsStr};
 use std::fs::{self, File};
 use std::io;
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use nix::dir::Dir;
 use nix::fcntl::{AtFlags, OFlag};
-use nix::sys::stat::{FileStat, Mode, SFlag, fstat, fstatat};
-use nix::unistd::{UnlinkatFlags, unlinkat};
+use nix::sys::stat::{FileStat, Mode, SFlag, fstat, fstatat, stat};
 
 use crate::log::{Kind, Log, Outcome};
 use crate::verify::{self, Expected};
@@ -21,11 +21,11 @@ use crate::verify::{self, Expected};
 use super::Options;
 use super::at::{
     file_kind, hide_entry, is_directory_at, keep_partly_overwritten, make_owner_accessible,
-    open_checked, remove_at, remove_hidden,
+    open_checked, remove_checked, remove_hidden,
 };
 use super::hard_link::{HardLinkRule, check_hard_links, hard_link_rule, running_as_root};
 use super::interrupt::check_interrupted;
-use super::mount::is_boundary;
+use super::mount::{MountTable, is_boundary};
 use super::overwrite::overwrite;
 use super::report::{log_done, log_object, log_stopped, unseen};
 use super::walk::{Walk, is_excluded};
@@ -62,14 +62,15 @@ pub fn erase_path(
         CString::new(name.as_bytes()).map_err(|err| unseen(log, path, io::Error::other(err)))?;
     let st = fstatat(&dir, entry.as_c_str(), AtFlags::AT_SYMLINK_NOFOLLOW)
         .map_err(|err| unseen(log, path, io::Error::from(err)))?;
-    let real = fs::canonicalize(parent)
+    let parent_st = fstat(&dir).map_err(|err| unseen(log, path, io::Error::from(err)))?;
+    let real = real_path(&dir, &parent_st, parent)
         .map_err(|err| unseen(log, path, err))?
         .join(name);
+    // read for each argument, so a mount made while an earlier one was erased is seen.
+    let mounts = MountTable::read();
     // a mount point cannot be renamed away: refuse before erasing anything inside it.
-    let boundary = fstat(&dir)
-        .map_err(io::Error::from)
-        .and_then(|parent_st| is_boundary(&st, &parent_st, &real))
-        .map_err(|err| unseen(log, path, err))?;
+    let boundary =
+        is_boundary(&st, &parent_st, &real, &mounts).map_err(|err| unseen(log, path, err))?;
     if boundary {
         let err =
             io::Error::other("is a mount point or on another filesystem, refusing to erase it");
@@ -81,8 +82,39 @@ pub fn erase_path(
         rel: Path::new(""),
         excludes,
         log,
+        mounts: &mounts,
     };
     erase_object(&dir, entry.as_c_str(), &st, path, &real, walk, opts)
+}
+
+/// the absolute path of the open directory `dir`, for mount lookups. linux reads it from the
+/// descriptor; elsewhere `parent` is canonicalized. either way the result must still be `dir`
+/// (`dir_st`), or the lookup would be made for another directory.
+#[cfg(unix)]
+fn real_path(dir: &File, dir_st: &FileStat, parent: &Path) -> io::Result<PathBuf> {
+    let real = opened_path(dir, parent)?;
+    let now = stat(&real)?;
+    if now.st_dev != dir_st.st_dev || now.st_ino != dir_st.st_ino {
+        return Err(io::Error::other(format!(
+            "{} is not the directory that was opened",
+            real.display()
+        )));
+    }
+    Ok(real)
+}
+
+/// without /proc the parent is canonicalized as on other systems; `real_path` checks both alike.
+#[cfg(target_os = "linux")]
+fn opened_path(dir: &File, parent: &Path) -> io::Result<PathBuf> {
+    use std::os::fd::AsRawFd;
+
+    fs::read_link(format!("/proc/self/fd/{}", dir.as_raw_fd()))
+        .or_else(|_| fs::canonicalize(parent))
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn opened_path(_dir: &File, parent: &Path) -> io::Result<PathBuf> {
+    fs::canonicalize(parent)
 }
 
 /// erases one entry and writes its line to the log. `st` is its stat, taken without following links.
@@ -139,8 +171,7 @@ fn log_skipped_at(log: Option<&Log>, dir: &File, name: &CStr, shown: &Path, deta
 }
 
 /// erases `name` inside the open directory `parent`. `st` is its stat, taken without following links.
-/// a link is unlinked by name with no identity check: it is never opened, so a swap can only
-/// remove the new entry, not redirect a write.
+/// a link is never opened: it is hidden, checked against `st` and deleted like the other entries.
 #[cfg(unix)]
 fn erase_entry(
     parent: &File,
@@ -153,9 +184,7 @@ fn erase_entry(
 ) -> io::Result<bool> {
     let kind = file_kind(st);
     if kind == SFlag::S_IFLNK {
-        unlinkat(parent, name, UnlinkatFlags::NoRemoveDir)
-            .map(|()| false)
-            .map_err(io::Error::from)
+        remove_checked(parent, name, st, shown).map(|()| false)
     } else if kind == SFlag::S_IFDIR {
         erase_dir_at(parent, name, st, shown, real, walk, opts)
     } else if kind == SFlag::S_IFREG {
@@ -168,8 +197,8 @@ fn erase_entry(
     }
 }
 
-/// erases the contents of a directory, then removes it by name. the directory is opened with an
-/// identity check; the final removal is not checked, and fails on a non-empty directory.
+/// erases the contents of a directory, then removes it. the directory is opened with an identity
+/// check, and hidden and checked again before it is removed; the removal fails on a non-empty directory.
 #[cfg(unix)]
 fn erase_dir_at(
     parent: &File,
@@ -193,7 +222,7 @@ fn erase_dir_at(
     if opts.verbose {
         eprintln!("  removing directory {}", shown.display());
     }
-    remove_at(parent, name, true, shown).map(|()| false)
+    remove_checked(parent, name, st, shown).map(|()| false)
 }
 
 /// erases every entry of the open directory `dir`, whose stat is `dir_st`. a failing entry is
@@ -227,9 +256,10 @@ fn erase_contents(
             rel: &entry_rel,
             excludes: walk.excludes,
             log: walk.log,
+            mounts: walk.mounts,
         };
         let result = match fstatat(dir, name.as_c_str(), AtFlags::AT_SYMLINK_NOFOLLOW) {
-            Ok(st) => match is_boundary(&st, dir_st, &entry_real) {
+            Ok(st) => match is_boundary(&st, dir_st, &entry_real, walk.mounts) {
                 Ok(true) => {
                     let (kind, size) = stat_kind(&st);
                     log_object(

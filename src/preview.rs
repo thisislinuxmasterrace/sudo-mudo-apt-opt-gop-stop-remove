@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::erase;
+use crate::erase::{self, MountTable};
 use crate::json;
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -38,6 +38,8 @@ struct Walk<'a> {
     excludes: &'a [String],
     /// data already counted, so hard links add their size once, also across paths.
     seen: HashSet<(u64, u64)>,
+    /// read again for each path, as the erase does.
+    mounts: MountTable,
 }
 
 /// counts each path the way the erase walks it, one summary per path in the same order. symlinks are
@@ -49,10 +51,15 @@ pub fn summarize(paths: &[PathBuf], recursive: bool, excludes: &[String]) -> Vec
         recursive,
         excludes,
         seen: HashSet::new(),
+        mounts: MountTable::read(),
     };
     paths
         .iter()
-        .map(|path| {
+        .enumerate()
+        .map(|(index, path)| {
+            if index > 0 {
+                walk.mounts = MountTable::read();
+            }
             let mut summary = Summary::default();
             match is_target_boundary(path) {
                 Ok(true) => summary.refused += 1,
@@ -92,7 +99,7 @@ pub(crate) fn is_target_boundary(path: &Path) -> io::Result<bool> {
         _ => Path::new("."),
     };
     let parent_dev = erase::device(&File::open(parent)?.metadata()?);
-    erase::is_mount_boundary(path, parent_dev)
+    erase::is_mount_boundary_in(path, parent_dev, &MountTable::read())
 }
 
 /// windows cannot open a directory as a file, and its erase never refuses a target as a mount
@@ -181,7 +188,7 @@ fn add_children(
             summary.excluded += 1;
             continue;
         }
-        match erase::is_mount_boundary(&child, parent_dev) {
+        match erase::is_mount_boundary_in(&child, parent_dev, &walk.mounts) {
             Ok(true) => summary.skipped += 1,
             Ok(false) => add(walk, summary, &child, &child_rel),
             Err(_) => summary.unreadable += 1,
@@ -256,7 +263,23 @@ pub fn to_json(paths: &[PathBuf], passes: u32, total: &Summary) -> String {
         }
         json::push_path(&mut out, path);
     }
-    out.push_str("],\"passes\":");
+    out.push(']');
+    #[cfg(unix)]
+    if paths.iter().any(|path| path.to_str().is_none()) {
+        out.push_str(",\"path_bytes\":[");
+        for (index, path) in paths.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            if path.to_str().is_some() {
+                out.push_str("null");
+            } else {
+                json::push_path_bytes(&mut out, path);
+            }
+        }
+        out.push(']');
+    }
+    out.push_str(",\"passes\":");
     json::push_u64(&mut out, u64::from(passes));
     let counts = [
         ("files", total.files),

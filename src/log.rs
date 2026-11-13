@@ -261,8 +261,8 @@ fn identity(_path: &Path) -> io::Result<Identity> {
 fn line(path: &Path, kind: Kind, size: u64, passes: u32, outcome: Outcome, detail: &str) -> String {
     let mut out = String::from("{\"time\":");
     json::push_str(&mut out, &rfc3339_utc(now_secs()));
-    out.push_str(",\"path\":");
-    json::push_path(&mut out, path);
+    out.push(',');
+    json::push_path_fields(&mut out, path);
     out.push_str(",\"kind\":");
     json::push_str(&mut out, kind.name());
     out.push_str(",\"size\":");

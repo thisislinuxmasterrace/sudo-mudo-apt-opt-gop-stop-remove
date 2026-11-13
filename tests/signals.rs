@@ -110,4 +110,56 @@ mod interrupt {
         assert!(matches!(run.code, Some(4 | 130)), "stderr:\n{}", run.stderr);
         assert_eq!(run.entries.len(), 1);
     }
+
+    #[test]
+    fn interrupt_inside_a_tree_keeps_the_tree_and_the_big_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("tree");
+        fs::create_dir_all(tree.join("sub")).unwrap();
+        File::create(tree.join("sub/big.bin"))
+            .unwrap()
+            .set_len(BIG_FILE)
+            .unwrap();
+
+        let mut child = Command::new(BIN)
+            .args(["-f", "-r", "-v", "-n", "3", path_str(&tree)])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to start binary");
+        let mut reader = BufReader::new(child.stderr.take().unwrap());
+        let mut stderr = String::new();
+        loop {
+            let mut line = String::new();
+            assert!(
+                reader.read_line(&mut line).unwrap() > 0,
+                "erase did not start"
+            );
+            stderr.push_str(&line);
+            if line.starts_with("  pass 1/3:") {
+                break;
+            }
+        }
+        kill(Pid::from_raw(child.id() as i32), Signal::SIGINT).unwrap();
+        reader.read_to_string(&mut stderr).unwrap();
+        let status = child.wait().unwrap();
+
+        // the walk stops: the tree and the directory holding the big file stay, the big file keeps its
+        // name and size, and no hidden name is left behind. the pass line is printed after hiding the
+        // only file in the tree, so the signal interrupts an active recursive erase.
+        assert_eq!(status.code(), Some(4), "stderr:\n{stderr}");
+        assert!(stderr.contains("interrupted"), "stderr:\n{stderr}");
+        assert!(tree.is_dir());
+        assert_eq!(
+            fs::metadata(tree.join("sub/big.bin")).unwrap().len(),
+            BIG_FILE
+        );
+        for dir in [&tree, &tree.join("sub")] {
+            for entry in fs::read_dir(dir).unwrap() {
+                let name = entry.unwrap().file_name();
+                assert!(!name.to_string_lossy().starts_with('.'), "{name:?} left");
+            }
+        }
+    }
 }

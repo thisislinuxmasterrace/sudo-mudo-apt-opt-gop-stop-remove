@@ -5,6 +5,7 @@ use std::alloc::{self, Layout};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
+use std::path::Path;
 use std::ptr::NonNull;
 
 use crate::erase::{self, Options};
@@ -14,27 +15,43 @@ use super::facts::{Facts, inspect};
 use super::target::Target;
 use super::{ALIGN, CHUNK};
 
-/// opens the device for writing with `O_DIRECT`, so the writes bypass the page cache. the device
-/// is not opened exclusively: a device in use is refused by the checks, not by the kernel.
-pub(super) fn open_for_write(target: &Target) -> Result<File, String> {
-    let shown = target.shown.display();
+/// opens the device for writing with `O_DIRECT`, so the writes bypass the page cache. unless
+/// `allow_busy`, it is opened with `O_EXCL` too: the kernel then refuses a device that is mounted or
+/// claimed by another exclusive user, and keeps others from claiming it while it is open.
+pub(super) fn open_for_write(target: &Target, allow_busy: bool) -> Result<File, String> {
+    let flags = if allow_busy {
+        libc::O_DIRECT
+    } else {
+        libc::O_DIRECT | libc::O_EXCL
+    };
     let file = OpenOptions::new()
         .write(true)
-        .custom_flags(libc::O_DIRECT)
+        .custom_flags(flags)
         .open(&target.path)
-        .map_err(|err| {
-            let hint = if err.kind() == io::ErrorKind::PermissionDenied {
-                " (erasing a device needs root)"
-            } else {
-                ""
-            };
-            format!("{shown}: could not open for writing: {err}{hint}")
-        })?;
+        .map_err(|err| open_error(&target.shown, &err))?;
+    let shown = target.shown.display();
     let meta = file.metadata().map_err(|err| format!("{shown}: {err}"))?;
     if !meta.file_type().is_block_device() || meta.rdev() != target.rdev {
         return Err(format!("{shown}: the device changed while it was opened"));
     }
     Ok(file)
+}
+
+/// the message for a device that could not be opened. EBUSY is the kernel's refusal of an exclusive
+/// open, so it reads like the other refusals.
+fn open_error(shown: &Path, err: &io::Error) -> String {
+    let shown = shown.display();
+    if err.raw_os_error() == Some(libc::EBUSY) {
+        return format!(
+            "{shown}: the device is busy (mounted or claimed by the kernel or another program), refusing to erase it (--i-know-what-i-am-doing allows it)"
+        );
+    }
+    let hint = if err.kind() == io::ErrorKind::PermissionDenied {
+        " (erasing a device needs root)"
+    } else {
+        ""
+    };
+    format!("{shown}: could not open for writing: {err}{hint}")
 }
 
 /// reads the device again and compares it with what was read before the confirmation. `Ok(false)`
@@ -162,5 +179,28 @@ impl Drop for AlignedBuf {
     fn drop(&mut self) {
         // safety: ptr was returned by alloc::alloc_zeroed with this layout, and is freed exactly once, here.
         unsafe { alloc::dealloc(self.ptr.as_ptr(), self.layout) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn busy_is_a_refusal_that_names_the_flag() {
+        let busy = io::Error::from_raw_os_error(libc::EBUSY);
+        let err = open_error(Path::new("/dev/sdb"), &busy);
+
+        assert!(err.starts_with("/dev/sdb: the device is busy"), "{err}");
+        assert!(err.ends_with("(--i-know-what-i-am-doing allows it)"));
+    }
+
+    #[test]
+    fn permission_denied_hints_at_root() {
+        let denied = io::Error::from_raw_os_error(libc::EACCES);
+        let err = open_error(Path::new("/dev/sdb"), &denied);
+
+        assert!(err.starts_with("/dev/sdb: could not open for writing: "));
+        assert!(err.ends_with("(erasing a device needs root)"), "{err}");
     }
 }

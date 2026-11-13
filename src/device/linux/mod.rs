@@ -129,7 +129,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
     // opened before the questions, so a missing permission is reported before anything is asked.
     let mut files = Vec::new();
     for target in &targets {
-        match open_for_write(target) {
+        match open_for_write(target, cli.allow_protected) {
             Ok(file) => files.push(file),
             Err(err) => {
                 eprintln!("{NAME}: {err}");

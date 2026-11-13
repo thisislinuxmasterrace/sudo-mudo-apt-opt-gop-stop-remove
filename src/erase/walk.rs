@@ -4,13 +4,19 @@ use std::path::Path;
 
 use crate::log::Log;
 
+#[cfg(unix)]
+use super::mount::MountTable;
+
 /// where an entry sits in a walk: `rel` is its path from the command-line argument (empty for the
 /// argument itself), `excludes` are the `--exclude` patterns, and `log` is the `--log` file, if any.
+/// on unix `mounts` is the mount table read for this argument.
 #[derive(Clone, Copy)]
 pub(super) struct Walk<'a> {
     pub(super) rel: &'a Path,
     pub(super) excludes: &'a [String],
     pub(super) log: Option<&'a Log>,
+    #[cfg(unix)]
+    pub(super) mounts: &'a MountTable,
 }
 
 /// true when `rel`, the path of an entry from its command-line argument, matches an `--exclude`

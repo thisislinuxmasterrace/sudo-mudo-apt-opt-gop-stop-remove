@@ -46,6 +46,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `interrupt.rs` | ctrl+c and sigterm during an erase |
 | `report.rs` | log lines and their stop |
 | `tests.rs` | unit tests of the erase |
+| `swap_tests.rs` | unix: an entry swapped between the check and the act, through the test-only hooks in `at::seam` |
 
 ## data flow
 
@@ -69,6 +70,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 - symlinks are never followed. paths are normalized with `components()` first, so `link/` is a link.
 - on unix a file is renamed to a hidden name and checked to be the same inode before it is overwritten and deleted. a file that cannot be removed is refused before its contents are touched. directories still erase their contents first, because a mount point inside them cannot be renamed away.
 - the unix `-r` walk uses `fstatat`, `renameat` and `unlinkat` on open directory descriptors, so a swapped directory cannot redirect the erase.
+- on unix every delete (file, link, emptied directory) first renames the entry to a random hidden name and checks it against the stat taken before (device, inode, type). a detected substitution is restored when possible; the later unlink goes by the hidden name and is not atomic with the identity check. on linux the renames use `RENAME_NOREPLACE`, so neither the hidden name nor the original one, when it is put back, replaces an entry created in between; elsewhere, and on filesystems without it, the name is checked just before the rename, which leaves a small window.
 - before opening an entry, the owner's bits needed for access are added. on linux through an `O_PATH` handle and `/proc/self/fd`; elsewhere by name with the identity checked first.
 - anything that cannot be read fails closed: the mount table, sysfs for devices, the filesystem type for `--wipe-free`.
 - a protected-path comparison on unix is by `(dev, ino)`, not by spelling. `is_system_protected` reads no environment variable on unix.

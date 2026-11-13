@@ -111,6 +111,16 @@ pub(super) fn inspect(target: &Target) -> Result<Facts, String> {
     for (name, sys) in &members {
         let node = node_of(name);
         let dev = read_required(&sys.join("dev"))?;
+        // the target's own entry must still be its device number; the check before writing repeats this.
+        if *sys == target.sys {
+            let number = format!("{}:{}", libc::major(target.rdev), libc::minor(target.rdev));
+            if dev != number {
+                return Err(format!(
+                    "the sysfs entry {} is device {dev}, not {number}",
+                    sys.display()
+                ));
+            }
+        }
         mounts.extend(
             table
                 .iter()

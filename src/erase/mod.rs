@@ -10,6 +10,8 @@ mod mount;
 mod overwrite;
 mod pattern;
 mod report;
+#[cfg(all(test, unix))]
+mod swap_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(unix)]
@@ -25,7 +27,7 @@ pub(crate) use interrupt::raise_interrupt;
 pub(crate) use interrupt::{check_interrupted, interrupted};
 #[cfg(target_os = "linux")]
 pub(crate) use mount::unescape_mountinfo;
-pub(crate) use mount::{device, is_mount_boundary, link_count};
+pub(crate) use mount::{MountTable, device, is_mount_boundary_in, link_count};
 pub(crate) use pattern::{Pattern, fill, pattern_for_pass};
 #[cfg(unix)]
 pub use unix::erase_path;

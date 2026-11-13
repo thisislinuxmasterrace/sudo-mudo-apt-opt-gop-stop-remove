@@ -24,7 +24,7 @@ warnings (copy-on-write, network, fuse, unknown filesystems, flash media, hard l
 
 paths are normalized first (`.` components are dropped), so `link/` is the link, not its target. a symlink is never followed: erasing one removes the link. a link to a protected directory can therefore be removed, while the directory it points to stays. an empty path argument is an argument error (code 2).
 
-on unix, `-r` walks through open directory descriptors (`openat`, `fstatat`, `renameat`, `unlinkat`). a directory swapped for a symlink during the walk cannot redirect the erase.
+on unix, `-r` walks through open directory descriptors (`openat`, `fstatat`, `renameat`, `unlinkat`). a directory swapped for a symlink during the walk cannot redirect the erase. every entry, links and directories included, is renamed to a random hidden name and checked against its earlier device, inode and type. a substitution detected by that check is reported and its name is restored when possible. the check and the later unlink are separate operations: another process with write access to the parent can still replace the hidden name between them.
 
 ## protected locations
 
@@ -44,7 +44,7 @@ the home directory (`$HOME` or the passwd entry on unix, `%USERPROFILE%` on wind
 
 - a mount point, or a path on another filesystem than its parent, given as a target is refused with code 1 before anything is erased (unix only). on windows this check does not exist.
 - inside `-r`, a mount point or another filesystem is skipped and reported, the directory that holds it is kept, and the run ends with code 4.
-- the mount table is read from `/proc/self/mountinfo` on linux and `getmntinfo` on macos, so bind mounts are found. on other bsds only the device id is compared, so a bind mount there can be erased through its source.
+- the mount table is read from `/proc/self/mountinfo` on linux and `getmntinfo` on macos, so bind mounts are found. it is read again for each path given on the command line, so a mount made while an earlier path was erased is seen; a mount made during the walk of one path is not. mount points that are not utf-8 are compared as bytes. on linux the path of the opened parent directory is taken from its descriptor (`/proc/self/fd`) and checked to be the same directory before it is used for the lookup. on other bsds only the device id is compared, so a bind mount there can be erased through its source.
 - if the mount table cannot be read, every entry that is not a link is refused and reported (fail closed).
 - on windows, mount points and junctions count as links: removed as links, content untouched. untested on windows.
 

@@ -76,6 +76,7 @@ with `-f` there is no question, so code 3 cannot come from a declined question. 
 | --- | --- |
 | `time` | utc, rfc 3339, whole seconds |
 | `path` | the path as handled. names that are not utf-8 are written with replacement characters |
+| `path_bytes` | only when the path is not utf-8, on unix: its raw bytes in lowercase hex (`61ff62` for `a`, `0xff`, `b`). windows paths stay lossy |
 | `kind` | `file`, `dir`, `link`, `other` (fifos, sockets, entries that could not be inspected); `device` or `partition` for a device run |
 | `size` | bytes |
 | `passes` | the number of passes for files; 0 for everything else |
@@ -94,7 +95,8 @@ with `-f` there is no question, so code 3 cannot come from a declined question. 
 
 | key | value |
 | --- | --- |
-| `paths` | array of the paths |
+| `paths` | array of the paths. names that are not utf-8 are written with replacement characters |
+| `path_bytes` | on unix, present only when a path is not utf-8: an array matching `paths`, with lowercase hex for such paths and `null` for utf-8 paths |
 | `passes` | number of passes |
 | `files`, `dirs`, `links` | counts |
 | `objects` | files, dirs and links together |

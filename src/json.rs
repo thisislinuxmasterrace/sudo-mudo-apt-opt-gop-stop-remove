@@ -1,5 +1,6 @@
 //! json written by hand for `--log` and `--dry-run --json`. strings are escaped here, in one place.
 
+use std::fmt::Write;
 use std::path::Path;
 
 /// appends `text` as a json string, quotes included. `"` and `\` are escaped, control characters
@@ -10,7 +11,10 @@ pub fn push_str(out: &mut String, text: &str) {
         match ch {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
-            ch if u32::from(ch) < 0x20 => out.push_str(&format!("\\u{:04x}", u32::from(ch))),
+            // writing to a string cannot fail.
+            ch if u32::from(ch) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", u32::from(ch));
+            }
             ch => out.push(ch),
         }
     }
@@ -20,6 +24,30 @@ pub fn push_str(out: &mut String, text: &str) {
 /// appends a path as a json string. bytes that are not utf-8 become `U+FFFD`.
 pub fn push_path(out: &mut String, path: &Path) {
     push_str(out, &path.to_string_lossy());
+}
+
+/// appends the `path` field, and on unix a `path_bytes` field with the raw bytes in lowercase hex
+/// when the path is not utf-8, so such a name can still be told apart from others.
+pub fn push_path_fields(out: &mut String, path: &Path) {
+    out.push_str("\"path\":");
+    push_path(out, path);
+    #[cfg(unix)]
+    if path.to_str().is_none() {
+        out.push_str(",\"path_bytes\":");
+        push_path_bytes(out, path);
+    }
+}
+
+/// appends the original unix path bytes as a quoted lowercase hex string.
+#[cfg(unix)]
+pub fn push_path_bytes(out: &mut String, path: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+
+    out.push('"');
+    for byte in path.as_os_str().as_bytes() {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out.push('"');
 }
 
 pub fn push_u64(out: &mut String, value: u64) {
@@ -74,6 +102,26 @@ mod tests {
         push_path(&mut out, Path::new(OsStr::from_bytes(b"a\xffb")));
 
         assert_eq!(out, "\"a\u{fffd}b\"");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_that_is_not_utf8_also_gets_its_bytes_in_hex() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let mut out = String::new();
+        push_path_fields(&mut out, Path::new(OsStr::from_bytes(b"a\xffb")));
+
+        assert_eq!(out, "\"path\":\"a\u{fffd}b\",\"path_bytes\":\"61ff62\"");
+    }
+
+    #[test]
+    fn utf8_path_has_no_bytes_field() {
+        let mut out = String::new();
+        push_path_fields(&mut out, Path::new("dir/ä.txt"));
+
+        assert_eq!(out, "\"path\":\"dir/ä.txt\"");
     }
 
     #[test]

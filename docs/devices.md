@@ -14,6 +14,7 @@ sudo-mudo-apt-opt-gop-stop-remove -n 3 /dev/sdb        # asks you to type /dev/s
 - a block device: a whole disk (`/dev/sdb`) or a partition (`/dev/sdb1`). name the device path itself.
 - a symbolic link to a device is refused, except links under `/dev/disk/` (by-id, by-uuid, by-label, by-path, by-partuuid) that resolve to a block device. they are erased through the resolved path. a path with `.` or `..` under `/dev/disk/` is refused.
 - a character device named directly is refused as a device (exit code 1).
+- the sysfs entry is found by the device number of the node (`/sys/dev/block/major:minor`), and its `dev` file must hold the same number. checks use the kernel device name from sysfs, even when the node has another name.
 - devices cannot be mixed with files in one run. `-r` with a device is exit code 1.
 - targets that overlap are refused: the same device twice, or a disk together with one of its partitions. two partitions of one disk are fine.
 
@@ -31,7 +32,9 @@ before anything is written, with exit code 1, the tool refuses a device that:
 
 if sysfs (`queue/rotational`, `holders`, `size`, `dev`), `/proc/swaps` or the mount table cannot be read, or a `holders` or `slaves` entry is missing, the device is refused (fail closed).
 
-`--i-know-what-i-am-doing` lifts the mounted, swap, holders, not-a-hard-disk and btrfs/zfs refusals, with a warning for each. it never lifts the virtual-device refusal, the zero size or the confirmation.
+the device is opened with `O_EXCL` after these checks, right before the confirmation. when the kernel answers that it is busy (mounted, or claimed by device-mapper, md, swap or another program), the run is refused with exit code 1. `--dry-run` does not open the device, so it can pass while the real run is refused.
+
+`--i-know-what-i-am-doing` lifts the mounted, swap, holders, not-a-hard-disk and btrfs/zfs refusals, with a warning for each, and opens the device without `O_EXCL`. it never lifts the virtual-device refusal, the zero size or the confirmation.
 
 ## confirmation
 

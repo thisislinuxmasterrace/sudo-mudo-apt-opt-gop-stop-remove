@@ -29,6 +29,32 @@ fn dry_run_and_completed_log_keep_the_same_file_facts() {
     assert!(String::from_utf8_lossy(&erased.stderr).contains("weak"));
 }
 
+#[test]
+fn other_copies_are_reported_in_dry_run_and_log_and_never_make_the_verdict_effective() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join(".git")).unwrap();
+    let file = write_file(dir.path(), "data");
+    let backup = dir
+        .path()
+        .join(format!("{}~", file.file_name().unwrap().to_string_lossy()));
+    fs::write(&backup, b"older").unwrap();
+    let dry = run(&["--dry-run", "--json", path_str(&file)], "");
+    assert_exit(&dry, 0);
+    let text = String::from_utf8(dry.stdout).unwrap();
+    assert!(text.contains("\"other_copies\":\"found\""), "{text}");
+    assert!(text.contains("\"kind\":\"git_work_tree\""), "{text}");
+    assert!(text.contains("\"kind\":\"editor_backup\""), "{text}");
+    assert!(!text.contains("\"verdict\":\"effective\""), "{text}");
+    assert!(backup.exists());
+    let log = dir.path().join("erase.log");
+    let erased = run(&["-f", "--log", path_str(&log), path_str(&file)], "");
+    assert_exit(&erased, 0);
+    let record = fs::read_to_string(log).unwrap();
+    assert!(record.contains("\"kind\":\"editor_backup\""), "{record}");
+    assert!(String::from_utf8_lossy(&erased.stderr).contains("editor backup"));
+    assert!(backup.exists(), "a found copy is reported, never erased");
+}
+
 #[cfg(unix)]
 #[test]
 fn dangling_link_is_cosmetic_and_does_not_need_target_facts() {

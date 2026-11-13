@@ -3,6 +3,7 @@
 use std::fs::Metadata;
 use std::path::Path;
 
+use crate::copies::{self, Found};
 use crate::{json, storage};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,6 +12,8 @@ pub(crate) struct Assessment {
     reasons: Vec<&'static str>,
     filesystem: Option<String>,
     medium: &'static str,
+    /// `None` when the object was not looked at for other copies.
+    copies: Option<Vec<Found>>,
 }
 
 impl Assessment {
@@ -21,11 +24,12 @@ impl Assessment {
                 reasons: vec!["removing the link does not overwrite its target"],
                 filesystem: None,
                 medium: "unknown",
+                copies: None,
             };
         }
         // special objects are refused by the erase; do not open them for advisory facts.
         if !meta.is_file() && !meta.is_dir() {
-            return Self::from_facts(None, "unknown", false, false);
+            return Self::from_facts(None, "unknown", false, false, None);
         }
         let (filesystem, medium) = storage_facts(path, meta);
         let medium = match medium {
@@ -33,7 +37,8 @@ impl Assessment {
             Some(false) => "rotational",
             None => "unknown",
         };
-        Self::from_facts(filesystem, medium, meta.is_dir(), meta.is_file())
+        let copies = Some(copies::find(path, meta));
+        Self::from_facts(filesystem, medium, meta.is_dir(), meta.is_file(), copies)
     }
 
     fn from_facts(
@@ -41,6 +46,7 @@ impl Assessment {
         medium: &'static str,
         is_dir: bool,
         is_file: bool,
+        copies: Option<Vec<Found>>,
     ) -> Self {
         let mut reasons = Vec::new();
         if is_dir {
@@ -57,14 +63,24 @@ impl Assessment {
             "unknown" => reasons.push("storage medium is unknown"),
             _ => {}
         }
-        reasons.push(
-            "compression and snapshots are unknown; other copies and encryption are not checked",
-        );
+        reasons.push("compression and snapshots are unknown; encryption is not checked");
+        match &copies {
+            Some(found) if !found.is_empty() => {
+                let mut kinds: Vec<_> = found.iter().map(|copy| copy.kind).collect();
+                kinds.dedup();
+                reasons.extend(kinds.into_iter().map(copies::Kind::reason));
+            }
+            Some(_) => reasons.push(
+                "no other copy was found in the few places checked (git work tree, editor backups, trash, sync folders); others may exist",
+            ),
+            None => reasons.push("other copies are not checked"),
+        }
         Self {
             verdict: "weak",
             reasons,
             filesystem,
             medium,
+            copies,
         }
     }
 
@@ -74,6 +90,7 @@ impl Assessment {
             reasons: vec!["object could not be assessed; coverage is incomplete"],
             filesystem: None,
             medium: "unknown",
+            copies: None,
         }
     }
 
@@ -107,7 +124,25 @@ impl Assessment {
         }
         out.push_str(",\"medium\":");
         json::push_str(out, self.medium);
-        out.push_str(",\"compression\":\"unknown\",\"snapshots\":\"unknown\",\"encryption\":\"not_checked\",\"other_copies\":\"not_checked\"}");
+        out.push_str(",\"compression\":\"unknown\",\"snapshots\":\"unknown\",\"encryption\":\"not_checked\",\"other_copies\":");
+        let state = match &self.copies {
+            None => "not_checked",
+            Some(found) if found.is_empty() => "none_found",
+            Some(_) => "found",
+        };
+        json::push_str(out, state);
+        out.push_str(",\"copies\":[");
+        for (i, copy) in self.copies.iter().flatten().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str("{\"kind\":");
+            json::push_str(out, copy.kind.as_str());
+            out.push(',');
+            json::push_path_fields(out, &copy.path);
+            out.push('}');
+        }
+        out.push_str("]}");
     }
 }
 
@@ -187,7 +222,8 @@ mod tests {
         file_assessment.write_fields(&mut fields);
         assert!(fields.contains("\"compression\":\"unknown\""));
         assert!(fields.contains("\"snapshots\":\"unknown\""));
-        assert!(fields.contains("\"other_copies\":\"not_checked\""));
+        assert!(fields.contains("\"other_copies\":\"none_found\",\"copies\":[]"));
+        assert!(file_assessment.line().contains("others may exist"));
         let directory =
             Assessment::for_path(dir.path(), &std::fs::symlink_metadata(dir.path()).unwrap());
         assert!(directory.line().contains("metadata only"));
@@ -245,6 +281,25 @@ mod tests {
     }
 
     #[test]
+    fn found_copies_are_listed_and_never_raise_the_verdict() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("notes.txt");
+        std::fs::write(&file, b"data").unwrap();
+        std::fs::write(dir.path().join("notes.txt~"), b"old").unwrap();
+        let assessment = Assessment::for_path(&file, &std::fs::symlink_metadata(&file).unwrap());
+        assert_eq!(assessment.verdict, "weak");
+        assert!(assessment.line().contains("editor backup"));
+        let mut fields = String::new();
+        assessment.write_fields(&mut fields);
+        assert!(fields.contains("\"other_copies\":\"found\""), "{fields}");
+        assert!(
+            fields.contains("{\"kind\":\"editor_backup\",\"path\":"),
+            "{fields}"
+        );
+        assert!(fields.contains("notes.txt~"), "{fields}");
+    }
+
+    #[test]
     fn uncertain_facts_never_produce_effective() {
         for filesystem in [
             None,
@@ -254,8 +309,13 @@ mod tests {
             Some("other"),
         ] {
             for medium in ["unknown", "flash", "rotational"] {
-                let assessment =
-                    Assessment::from_facts(filesystem.map(str::to_owned), medium, false, true);
+                let assessment = Assessment::from_facts(
+                    filesystem.map(str::to_owned),
+                    medium,
+                    false,
+                    true,
+                    None,
+                );
                 assert_eq!(assessment.verdict, "weak");
                 assert!(
                     assessment

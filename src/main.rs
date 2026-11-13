@@ -3,6 +3,7 @@
 mod assessment;
 mod cli;
 mod confirm;
+mod copies;
 mod device;
 mod erase;
 mod json;

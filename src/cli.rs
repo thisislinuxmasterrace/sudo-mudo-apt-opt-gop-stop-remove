@@ -19,7 +19,7 @@ exit codes: 0 done, 1 refused before erasing, 2 bad arguments, 3 declined, 4 not
 #[derive(Debug, Parser)]
 #[command(version, about, after_help = EXAMPLES)]
 pub struct Cli {
-    /// files to erase, in addition to the ones read with --files-from
+    /// files to erase, in addition to the ones read with --files-from; a block device (linux) is experimental
     #[arg(
         required_unless_present_any = ["wipe_free", "files_from"],
         conflicts_with = "wipe_free"

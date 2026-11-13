@@ -284,7 +284,7 @@ pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
     }
 }
 
-/// routes ctrl+c and sigterm to the interrupt flag for the erase that follows the confirmation.
+/// routes ctrl+c, sigterm and sighup to the interrupt flag for the erase that follows the confirmation.
 pub fn start_interrupt_guard() -> Result<erase::InterruptGuard, ExitCode> {
     erase::InterruptGuard::install().map_err(|err| {
         eprintln!("{NAME}: could not install the interrupt handler: {err}");

@@ -40,7 +40,7 @@ combinations that are argument errors (exit code 2): `--json` without `--dry-run
 | 2 | bad command line: an unknown flag, no paths, `-n 0`, an empty path argument (`""`), an empty `--exclude` pattern, an `--exclude` pattern that is `.` or absolute, any combination listed under [flags](#flags), `--kill-holders` outside windows |
 | 3 | declined: an answer other than `y` or `yes`, no input, a wrong name for a large erase, the same for `--wipe-free`, a device run without a terminal, a wrong device path. also a signal that arrives before the first path is erased (`aborted` is printed), `-f` included |
 | 4 | not finished: at least one path was not erased (including a mount point skipped inside a tree, a hard-linked file under root found inside a tree, a declined reboot-deletion or lock-holder question, and `-f` leaving a locked file), a log line could not be written, a `--verify` mismatch, `--wipe-free` wrote nothing or failed, or the erase was interrupted (`interrupted:` is printed) |
-| 130 | a second ctrl+c or sigterm: the tool exits at once without restoring the name of the file being erased |
+| 130 | a second ctrl+c, sigterm or sighup: the tool exits at once without restoring the name of the file being erased |
 
 with `-f` there is no question, so code 3 cannot come from a declined question. a signal that arrives while a question is open is not caught: it kills the process and the tool has no exit code for it.
 

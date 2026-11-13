@@ -101,6 +101,16 @@ mod interrupt {
     }
 
     #[test]
+    fn sighup_keeps_partly_erased_file_under_its_name() {
+        let run = erase_and_interrupt(&[Signal::SIGHUP]);
+
+        assert_eq!(run.code, Some(4), "stderr:\n{}", run.stderr);
+        assert!(run.stderr.contains("interrupted by signal"));
+        assert_eq!(run.entries, ["big.bin"]);
+        assert_eq!(run.len, Some(BIG_FILE));
+    }
+
+    #[test]
     fn second_interrupt_stops_the_erase_without_success() {
         // the second signal usually arrives before the write loop has seen the first one, and the process
         // exits with 130. under load the first signal is handled alone and the run ends with 4. both are

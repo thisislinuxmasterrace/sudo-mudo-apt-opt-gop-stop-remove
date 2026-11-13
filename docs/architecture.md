@@ -44,7 +44,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `mount.rs` | mount points and device ids |
 | `hard_link.rs` | the hard link rule |
 | `overwrite.rs`, `pattern.rs` | passes and overwrite patterns |
-| `interrupt.rs` | ctrl+c and sigterm during an erase |
+| `interrupt.rs` | ctrl+c, sigterm and sighup during an erase |
 | `report.rs` | captured assessments, stderr reports, log lines and their stop |
 | `tests.rs` | unit tests of the erase |
 | `swap_tests.rs` | unix: an entry swapped between the check and the act, through the test-only hooks in `at::seam` |

@@ -1,6 +1,6 @@
 # devices
 
-overwrite a whole disk or partition. linux only: on macos and windows a device path is refused with exit code 1. this code has not been tested on real disks, usb drives or partitions (see [guarantees and limits](guarantees-and-limits.md#what-is-not-verified)).
+overwrite a whole disk or partition. this mode is experimental. linux only: on macos and windows a device path is refused with exit code 1. this code has not been tested on real disks, usb drives or partitions (see [guarantees and limits](guarantees-and-limits.md#what-is-not-verified)).
 
 contents: [targets](#targets) · [refusals](#refusals) · [confirmation](#confirmation) · [how it writes](#how-it-writes) · [flags](#flags) · [not covered](#not-covered)
 

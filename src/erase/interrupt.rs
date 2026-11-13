@@ -1,5 +1,5 @@
-//! ctrl+c and sigterm during an erase: the flag the write loops check, and the guard that routes the
-//! signals to it while an erase runs.
+//! ctrl+c, sigterm and sighup during an erase: the flag the write loops check, and the guard that routes
+//! the signals to it while an erase runs.
 
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,7 +9,7 @@ use crate::platform::windows;
 #[cfg(unix)]
 use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
 
-/// set by the interrupt handlers on the first ctrl+c or sigterm while an erase runs.
+/// set by the interrupt handlers on the first ctrl+c, sigterm or sighup while an erase runs.
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
 /// records an interrupt and returns true when one was already recorded. it runs inside signal and
@@ -39,8 +39,8 @@ pub(crate) fn check_interrupted() -> io::Result<()> {
     Ok(())
 }
 
-/// routes ctrl+c and sigterm to the interrupt flag until the guard is dropped, so the handlers only
-/// cover the erase itself and not the questions before it.
+/// routes ctrl+c, sigterm and sighup to the interrupt flag until the guard is dropped, so the handlers
+/// only cover the erase itself and not the questions before it. sighup is what a closing terminal sends.
 #[cfg(unix)]
 pub struct InterruptGuard {
     previous: Vec<(Signal, SigAction)>,
@@ -57,7 +57,7 @@ impl InterruptGuard {
         let mut guard = Self {
             previous: Vec::new(),
         };
-        for signal in [Signal::SIGINT, Signal::SIGTERM] {
+        for signal in [Signal::SIGINT, Signal::SIGTERM, Signal::SIGHUP] {
             // a signal the process was started with ignored stays ignored.
             if ignores(signal)? {
                 continue;

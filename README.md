@@ -10,7 +10,7 @@ file runs report an advisory verdict with reasons in the summary, dry-run json a
 
 the tool overwrites through the filesystem. that is a real erase mostly on a hard disk with a filesystem that rewrites blocks in place (ext4, xfs, ntfs, fat) and no snapshots. on ssd and nvme drives, on copy-on-write filesystems (apfs, btrfs, zfs, refs), with journals, snapshots, backups, caches or remote storage, it is best effort: an older copy of the data can survive where the tool cannot reach it. when the data matters, use full-disk encryption from the start, or the drive's own secure erase. details: [guarantees and limits](docs/guarantees-and-limits.md).
 
-status: version 0.1.0, early development. the windows code has only been exercised by ci, not on real windows hardware. erasing devices on linux is not tested on real disks. the full list is in [guarantees and limits](docs/guarantees-and-limits.md#what-is-not-verified).
+status: version 0.1.0, early development. the windows code has only been exercised by ci, not on real windows hardware. erasing devices on linux is experimental and not tested on real disks. the full list is in [guarantees and limits](docs/guarantees-and-limits.md#what-is-not-verified).
 
 ## install
 

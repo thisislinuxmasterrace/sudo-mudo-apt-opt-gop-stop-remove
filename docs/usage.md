@@ -11,7 +11,7 @@ the examples use the full binary name, `sudo-mudo-apt-opt-gop-stop-remove`. it h
 for each file the tool:
 
 1. renames it to a random hidden name in the same directory (`.` followed by 16 hex digits). on unix it also checks that the renamed entry is still the same file, and a file that cannot be removed is refused before its contents are touched.
-2. overwrites the contents. `-n` sets the number of passes, default 1. passes run in the order zeros, ones, random, and repeat; the last pass is always random.
+2. overwrites the contents. `-n` sets the number of passes, default 1. passes run in the order zeros, ones, random, and repeat; the last pass is always random. extra passes only add wear: on flash, copy-on-write and compressing filesystems they do not make the erase more reliable.
 3. deletes it.
 
 a symbolic link is removed as a link and never followed, so its target is untouched. read-only files and directories, and entries the owner cannot access at all, are made accessible to their owner first.
@@ -112,7 +112,7 @@ codes and formats: [reference](reference.md). when stdin is not a terminal and a
 
 the handlers are installed only while an erase runs, after the confirmation. at a question, ctrl+c kills the process at once and nothing is erased.
 
-during an erase, the first ctrl+c or sigterm stops the write loops at the next write. the file being overwritten gets its name back, but its contents may already be partly overwritten. `interrupted: ...` is printed, paths not reached are not touched, and the run ends with exit code 4. a signal before the first path is erased ends with `aborted` and exit code 3.
+during an erase, the first ctrl+c, sigterm or sighup (a closing terminal) stops the write loops at the next write. the file being overwritten gets its name back, but its contents may already be partly overwritten. `interrupted: ...` is printed, paths not reached are not touched, and the run ends with exit code 4. a signal before the first path is erased ends with `aborted` and exit code 3.
 
 a second signal exits at once with code 130 and does not restore the name, so a file can stay under its hidden name. a kill or a power loss has the same result, and a directory can be left partly erased under its original name.
 
@@ -120,7 +120,7 @@ a second signal exits at once with code 130 and does not restore the name, so a 
 
 a file held open by another program is not erased by default.
 
-- `--kill-holders` closes the programs that hold the file. it asks first unless `-f` is given. services may be stopped too. if the question is declined, the file is not erased and the run ends with exit code 4.
+- `--kill-holders` closes the programs that hold the file. it asks first unless `-f` is given. the tool asks the windows restart manager to shut the holders down and forces it when they do not close (`RmForceShutdown`), so services among them are stopped too. if the question is declined, the file is not erased and the run ends with exit code 4.
 - if the file still cannot be deleted after its contents are erased, the tool asks whether to delete it at the next reboot. with `-f` nothing is scheduled and the file stays; a declined question leaves it in place too. both end with exit code 4.
 
 `--kill-holders` outside windows is an argument error (exit code 2). this code has not been tested on real windows hardware; ci runs the scenarios in `tests/windows/locks.ps1` on a windows runner.

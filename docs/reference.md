@@ -14,6 +14,7 @@ usage: `sudo-mudo-apt-opt-gop-stop-remove [OPTIONS] [PATHS]...`
 | `-r`, `--recursive` | off | erase directories and their contents |
 | `-n`, `--passes <N>` | 1 | number of overwrite passes, at least 1. zeros, ones, random, repeating; the last is random |
 | `--dry-run` | off | show what would be erased and change nothing |
+| `--explain` | off | a dry run that also prints advice for the paths: what an overwrite can and cannot do, and commands that would help (printed, never run) |
 | `--json` | off | with `--dry-run`: the summary as one line of json on stdout. needs `--dry-run` |
 | `-f`, `--force` | off | ask no questions (confirmation, lock holders, reboot). warnings are still printed. does not lift refusals |
 | `--exclude <GLOB>` | | skip matching entries inside `-r` trees. repeatable. needs `-r` |
@@ -29,7 +30,7 @@ usage: `sudo-mudo-apt-opt-gop-stop-remove [OPTIONS] [PATHS]...`
 | `-h`, `--help` | | print help (`-h` short, `--help` long) |
 | `-V`, `--version` | | print the version |
 
-combinations that are argument errors (exit code 2): `--json` without `--dry-run`, `--exclude` without `-r`, `-0` without `--files-from`, `--files-from -` without `-f` (unless `--dry-run`), and `--wipe-free` together with paths, `--files-from`, `--exclude`, `--json`, `--log` or `--verify`.
+combinations that are argument errors (exit code 2): `--json` without `--dry-run`, `--explain` together with `--json` or `--wipe-free`, `--exclude` without `-r`, `-0` without `--files-from`, `--files-from -` without `-f` (unless `--dry-run`), and `--wipe-free` together with paths, `--files-from`, `--exclude`, `--json`, `--log` or `--verify`.
 
 ## exit codes
 

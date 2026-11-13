@@ -46,14 +46,14 @@ const NETWORK: &[&str] = &[
 /// how a filesystem type is treated. fuse names (`fuse.sshfs`, `fuseblk`, `macfuse`, ...) and
 /// unlisted types both end up as `FuseOrUnknown`: they may send writes to a remote server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub(crate) enum Kind {
     Local,
     CopyOnWrite,
     Network,
     FuseOrUnknown,
 }
 
-fn classify(fs_name: &str) -> Kind {
+pub(crate) fn classify(fs_name: &str) -> Kind {
     if COPY_ON_WRITE.contains(&fs_name) {
         Kind::CopyOnWrite
     } else if LOCAL.contains(&fs_name) {

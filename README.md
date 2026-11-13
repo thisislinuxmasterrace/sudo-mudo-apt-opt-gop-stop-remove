@@ -30,6 +30,9 @@ the examples use the full binary name. it has no short alias on purpose.
 # look first, change nothing
 sudo-mudo-apt-opt-gop-stop-remove --dry-run -r build/
 
+# look first and get advice for these paths, change nothing
+sudo-mudo-apt-opt-gop-stop-remove --explain notes.txt
+
 # erase a file; asks for confirmation
 sudo-mudo-apt-opt-gop-stop-remove notes.txt
 

@@ -6,8 +6,8 @@ use std::process::ExitCode;
 use crate::cli::Cli;
 use crate::confirm::{confirm, confirm_wipe, strict_paths};
 use crate::{
-    EXIT_DECLINED, EXIT_INCOMPLETE, EXIT_INVALID, NAME, device, erase, log, preview, safety,
-    storage, wipe,
+    EXIT_DECLINED, EXIT_INCOMPLETE, EXIT_INVALID, NAME, device, erase, explain, log, preview,
+    safety, storage, wipe,
 };
 
 /// a mount point given as a target is refused up front; inside a tree the erase skips it instead.
@@ -38,7 +38,12 @@ fn target_is_mount_point(_path: &Path) -> bool {
 
 pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCode {
     match device::is_device_run(paths) {
-        Ok(true) => return device::run(paths, cli, opts),
+        Ok(true) => {
+            if cli.explain {
+                eprintln!("note: --explain gives no advice for devices yet, showing the dry run");
+            }
+            return device::run(paths, cli, opts);
+        }
         Ok(false) => {}
         Err(err) => {
             eprintln!("{NAME}: {err}");
@@ -115,6 +120,13 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
         }
         for line in &summary {
             println!("  {line}");
+        }
+        if cli.explain
+            && let Some(total) = &total
+        {
+            for line in explain::advice(&total.assessments) {
+                println!("{line}");
+            }
         }
         return ExitCode::SUCCESS;
     }

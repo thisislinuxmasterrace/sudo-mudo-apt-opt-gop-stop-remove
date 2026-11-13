@@ -39,6 +39,8 @@ would erase build (1 passes)
 
 the text summary shows up to 20 entry assessments; `--dry-run --json` includes all inspected entries. directory metadata and child entries are assessed separately. skipped, excluded, refused, special or unreadable entries limit coverage; see [assessments](guarantees-and-limits.md#assessments).
 
+`--explain` does a dry run and then prints advice for the paths. each condition found (flash storage, an unknown medium, a copy-on-write, network or fuse filesystem, a symbolic link, a git work tree, sync folder, trash folder or editor backups) gets one line, with commands that would help. the commands are printed and never run, and the text does not claim that data is unrecoverable. it asks nothing and erases nothing. for a device it only shows the dry run, and it does not combine with `--json` or `--wipe-free`.
+
 with `-f` and no `--dry-run` the preliminary summary is not shown and the tree is not counted. assessments are collected during the erase walk and printed on stderr, without another walk or question.
 
 ## confirmation

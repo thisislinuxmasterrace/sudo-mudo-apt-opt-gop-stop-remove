@@ -6,6 +6,7 @@ mod confirm;
 mod copies;
 mod device;
 mod erase;
+mod explain;
 mod json;
 mod log;
 mod paths;
@@ -38,7 +39,9 @@ const EXIT_DECLINED: u8 = 3;
 const EXIT_INCOMPLETE: u8 = 4;
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    // an explanation changes nothing, so every later step treats it as a dry run.
+    cli.dry_run |= cli.explain;
 
     if !cfg!(windows) && cli.kill_holders {
         eprintln!("{NAME}: --kill-holders is only supported on windows");

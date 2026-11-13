@@ -41,7 +41,24 @@ impl Assessment {
         Self::from_facts(filesystem, medium, meta.is_dir(), meta.is_file(), copies)
     }
 
-    fn from_facts(
+    pub(crate) fn filesystem(&self) -> Option<&str> {
+        self.filesystem.as_deref()
+    }
+
+    pub(crate) fn medium(&self) -> &'static str {
+        self.medium
+    }
+
+    pub(crate) fn verdict(&self) -> &'static str {
+        self.verdict
+    }
+
+    /// the kinds of other copies that were found, empty when none were found or none were looked for.
+    pub(crate) fn copy_kinds(&self) -> impl Iterator<Item = copies::Kind> + '_ {
+        self.copies.iter().flatten().map(|copy| copy.kind)
+    }
+
+    pub(crate) fn from_facts(
         filesystem: Option<String>,
         medium: &'static str,
         is_dir: bool,

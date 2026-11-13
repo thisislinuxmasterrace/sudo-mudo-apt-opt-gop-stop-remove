@@ -22,6 +22,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `src/prompt.rs` | the single yes/no question helper, and the exact-text question |
 | `src/preview.rs`, `src/preview/json_output.rs`, `src/preview/tests.rs` | counts and assesses visited entries; text summary, dry-run json and unit tests |
 | `src/assessment.rs` | conservative per-entry verdict, reasons and facts shared by preview and erase reports |
+| `src/explain.rs` | `--explain`: advice lines from the assessment facts; commands are printed, never run |
 | `src/copies.rs` | advisory search for other copies by path: git work tree, sync folder, trash, editor backups |
 | `src/safety.rs` | path validation (`validate_target`, `validate_wipe_dir`), protected locations |
 | `src/storage/` | filesystem checks: `mod.rs` (type lists, `classify`, warnings), `fs_name.rs` (filesystem name per os, linux magic table, mountinfo lookups, windows volume root), `flash.rs` (sysfs flash detection), `space.rs` (`available_bytes`) |

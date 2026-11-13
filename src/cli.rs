@@ -8,6 +8,7 @@ const EXAMPLES: &str = "\
 examples:
   erase a file, after a question:        sudo-mudo-apt-opt-gop-stop-remove notes.txt
   look first, change nothing:            sudo-mudo-apt-opt-gop-stop-remove --dry-run -r build/
+  look first and get advice:             sudo-mudo-apt-opt-gop-stop-remove --explain notes.txt
   a tree, keeping some entries:          sudo-mudo-apt-opt-gop-stop-remove -r --exclude .git build/
   paths from find, in a script:          find . -name '*.tmp' -print0 | sudo-mudo-apt-opt-gop-stop-remove -f -0 --files-from -
   with a record of what was erased:      sudo-mudo-apt-opt-gop-stop-remove -r --log erase.jsonl build/
@@ -77,6 +78,13 @@ pub struct Cli {
     /// only show what would be erased, change nothing
     #[arg(long)]
     pub dry_run: bool,
+
+    /// like --dry-run, and also explain what an overwrite can and cannot do for these paths
+    ///
+    /// the advice comes from the same facts as the assessments: storage medium, filesystem and other
+    /// copies. commands that would help are printed, never run. nothing is erased.
+    #[arg(long, conflicts_with_all = ["wipe_free", "json"])]
+    pub explain: bool,
 
     /// with --dry-run: print the summary as one line of json on stdout
     #[arg(long, requires = "dry_run", conflicts_with = "wipe_free")]

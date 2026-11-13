@@ -16,6 +16,12 @@ pub(super) fn is_flash(path: &Path) -> bool {
 
 #[cfg(target_os = "linux")]
 pub(crate) fn medium(path: &Path) -> Option<bool> {
+    non_rotational(&block_dir(path)?, 0)
+}
+
+/// the sysfs directory of the block device that holds `path`, `None` when it cannot be told.
+#[cfg(target_os = "linux")]
+pub(super) fn block_dir(path: &Path) -> Option<PathBuf> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
     let Ok(meta) = std::fs::metadata(path) else {
@@ -30,12 +36,11 @@ pub(crate) fn medium(path: &Path) -> Option<bool> {
             _ => return None,
         }
     }
-    let block = PathBuf::from(format!(
+    Some(PathBuf::from(format!(
         "/sys/dev/block/{}:{}",
         nix::sys::stat::major(dev),
         nix::sys::stat::minor(dev)
-    ));
-    non_rotational(&block, 0)
+    )))
 }
 
 #[cfg(not(target_os = "linux"))]

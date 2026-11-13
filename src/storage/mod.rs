@@ -1,11 +1,15 @@
 //! advisory checks on the storage behind a path. warnings never block an erase.
 
+mod crypt;
 mod flash;
 mod fs_name;
 mod space;
 
 use std::path::{Path, PathBuf};
 
+pub(crate) use crypt::Encryption;
+#[cfg(target_os = "linux")]
+pub(crate) use crypt::detect as assessment_encryption;
 use flash::is_flash;
 #[cfg(target_os = "linux")]
 pub(crate) use flash::medium as assessment_medium;

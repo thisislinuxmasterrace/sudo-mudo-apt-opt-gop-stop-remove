@@ -85,7 +85,7 @@ with `-f` there is no question, so code 3 cannot come from a declined question. 
 | `detail` | the warning or error text, empty when there is none |
 | `verdict` | ordinary file runs: `weak` or `cosmetic`; `effective` is reserved and never issued automatically |
 | `reasons` | array of assessment reasons, separate from the operation result |
-| `facts` | `filesystem` (name or `null`), `medium` (`flash`, `rotational`, `unknown`), `compression` and `snapshots` (`unknown`), `encryption` (`not_checked`), `other_copies` (`found`, `none_found` or `not_checked`), `copies` (array of `{"kind", "path"}` with `kind` one of `git_work_tree`, `sync_folder`, `trash`, `editor_backup`; empty unless `other_copies` is `found`) |
+| `facts` | `filesystem` (name or `null`), `medium` (`flash`, `rotational`, `unknown`), `compression` and `snapshots` (`unknown`), `encryption` (`dm_crypt`, `ecryptfs`, `none_detected` or `not_checked`), `other_copies` (`found`, `none_found` or `not_checked`), `copies` (array of `{"kind", "path"}` with `kind` one of `git_work_tree`, `sync_folder`, `trash`, `editor_backup`; empty unless `other_copies` is `found`) |
 
 assessment fields are collected before rename or deletion, even though the line is written afterwards. directory assessments describe metadata only; children have their own records. uninspected or skipped entries do not establish overwrite effectiveness. see [assessments](guarantees-and-limits.md#assessments). device records keep their existing format.
 

@@ -25,7 +25,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `src/explain.rs` | `--explain`: advice lines from the assessment facts; commands are printed, never run |
 | `src/copies.rs` | advisory search for other copies by path: git work tree, sync folder, trash, editor backups |
 | `src/safety.rs` | path validation (`validate_target`, `validate_wipe_dir`), protected locations |
-| `src/storage/` | filesystem checks: `mod.rs` (type lists, `classify`, warnings), `fs_name.rs` (filesystem name per os, linux magic table, mountinfo lookups, windows volume root), `flash.rs` (sysfs flash detection), `space.rs` (`available_bytes`) |
+| `src/storage/` | filesystem checks: `mod.rs` (type lists, `classify`, warnings), `fs_name.rs` (filesystem name per os, linux magic table, mountinfo lookups, windows volume root), `flash.rs` (sysfs flash detection, and `block_dir`, the sysfs directory of a path's device), `crypt.rs` (dm-crypt and ecryptfs detection), `space.rs` (`available_bytes`) |
 | `src/erase/` | erase of files, directories and symlinks. see below |
 | `src/verify.rs` | `--verify`: the read-back check, and the bytes of the last pass made from a seed |
 | `src/wipe.rs` | `--wipe-free`: fills free space with temporary files, pass by pass |

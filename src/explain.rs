@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use crate::copies;
 use crate::preview::EntryAssessment;
-use crate::storage::{self, Kind};
+use crate::storage::{self, Encryption, Kind};
 
 /// one block of advice for the visited entries, as lines ready to print. every condition is listed once,
 /// however many entries share it.
@@ -16,10 +16,17 @@ pub(crate) fn advice(entries: &[EntryAssessment]) -> Vec<String> {
     let mut network = false;
     let mut fuse_or_unknown = false;
     let mut link = false;
+    let mut dm_crypt = false;
+    let mut ecryptfs = false;
     let mut copy_kinds = BTreeSet::new();
     for entry in entries {
         let assessment = &entry.assessment;
         link |= assessment.verdict() == "cosmetic";
+        match assessment.encryption() {
+            Encryption::DmCrypt => dm_crypt = true,
+            Encryption::Ecryptfs => ecryptfs = true,
+            Encryption::NotChecked | Encryption::NoneDetected => {}
+        }
         match assessment.medium() {
             "flash" => flash = true,
             // an object with no filesystem fact is special or unreadable: the medium advice would not help.
@@ -43,6 +50,12 @@ pub(crate) fn advice(entries: &[EntryAssessment]) -> Vec<String> {
     }
     if flash {
         lines.push("  - flash storage (ssd, usb stick, sd card): the drive may keep old blocks that an overwrite never reaches. the drive's own erase works on the whole disk and destroys everything on it, the system disk included, so check `<disk>` first. nvme: `nvme sanitize /dev/<disk> --sanact=2` or `nvme format /dev/<disk> --ses=1`. sata ssd: `hdparm --user-master u --security-set-pass <password> /dev/<disk>` and then `hdparm --user-master u --security-erase <password> /dev/<disk>`; an interrupted run or a frozen drive can leave it password-locked. data kept on an encrypted volume is better handled by destroying its key: `cryptsetup luksErase /dev/<device>` removes every key slot and makes the volume permanently unreadable. usb sticks and sd cards have no such commands.".to_owned());
+    }
+    if dm_crypt {
+        lines.push("  - dm-crypt volume: what is unreadable without the key is the whole volume, not one file. for a luks volume `cryptsetup luksErase /dev/<device>` removes every key slot, which makes the volume unreadable unless a header or key backup exists, so check `<device>` first. other dm-crypt types have no such command. an overwrite of one file only reaches the encrypted blocks.".to_owned());
+    }
+    if ecryptfs {
+        lines.push("  - ecryptfs mount: the files below it are encrypted. destroying the key is what makes them unreadable. an overwrite only reaches the encrypted lower files.".to_owned());
     }
     if unknown_medium {
         lines.push("  - storage medium unknown: check it with `lsblk -d -o NAME,ROTA`. 1 means a spinning disk, 0 means flash or a virtual disk.".to_owned());
@@ -92,11 +105,31 @@ mod tests {
             assessment: Assessment::from_facts(
                 Some(filesystem.to_owned()),
                 medium,
+                Encryption::NoneDetected,
                 false,
                 true,
                 Some(Vec::new()),
             ),
         }
+    }
+
+    #[test]
+    fn encrypted_volumes_get_key_advice() {
+        let entries = [EntryAssessment {
+            path: PathBuf::from("x"),
+            assessment: Assessment::from_facts(
+                Some("ext4".to_owned()),
+                "flash",
+                Encryption::DmCrypt,
+                false,
+                true,
+                Some(Vec::new()),
+            ),
+        }];
+        let text = text(&entries);
+        assert!(text.contains("dm-crypt volume"));
+        assert!(text.contains("cryptsetup luksErase"));
+        assert!(!text.contains("ecryptfs mount"));
     }
 
     fn text(entries: &[EntryAssessment]) -> String {

@@ -4,6 +4,7 @@ use std::fs::Metadata;
 use std::path::Path;
 
 use crate::copies::{self, Found};
+use crate::storage::Encryption;
 use crate::{json, storage};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,6 +13,7 @@ pub(crate) struct Assessment {
     reasons: Vec<&'static str>,
     filesystem: Option<String>,
     medium: &'static str,
+    encryption: Encryption,
     /// `None` when the object was not looked at for other copies.
     copies: Option<Vec<Found>>,
 }
@@ -24,21 +26,33 @@ impl Assessment {
                 reasons: vec!["removing the link does not overwrite its target"],
                 filesystem: None,
                 medium: "unknown",
+                encryption: Encryption::NotChecked,
                 copies: None,
             };
         }
         // special objects are refused by the erase; do not open them for advisory facts.
         if !meta.is_file() && !meta.is_dir() {
-            return Self::from_facts(None, "unknown", false, false, None);
+            return Self::from_facts(None, "unknown", Encryption::NotChecked, false, false, None);
         }
-        let (filesystem, medium) = storage_facts(path, meta);
+        let (filesystem, medium, encryption) = storage_facts(path, meta);
         let medium = match medium {
             Some(true) => "flash",
             Some(false) => "rotational",
             None => "unknown",
         };
         let copies = Some(copies::find(path, meta));
-        Self::from_facts(filesystem, medium, meta.is_dir(), meta.is_file(), copies)
+        Self::from_facts(
+            filesystem,
+            medium,
+            encryption,
+            meta.is_dir(),
+            meta.is_file(),
+            copies,
+        )
+    }
+
+    pub(crate) fn encryption(&self) -> Encryption {
+        self.encryption
     }
 
     pub(crate) fn filesystem(&self) -> Option<&str> {
@@ -61,6 +75,7 @@ impl Assessment {
     pub(crate) fn from_facts(
         filesystem: Option<String>,
         medium: &'static str,
+        encryption: Encryption,
         is_dir: bool,
         is_file: bool,
         copies: Option<Vec<Found>>,
@@ -80,7 +95,8 @@ impl Assessment {
             "unknown" => reasons.push("storage medium is unknown"),
             _ => {}
         }
-        reasons.push("compression and snapshots are unknown; encryption is not checked");
+        reasons.push("compression and snapshots are unknown");
+        reasons.push(encryption.reason());
         match &copies {
             Some(found) if !found.is_empty() => {
                 let mut kinds: Vec<_> = found.iter().map(|copy| copy.kind).collect();
@@ -97,6 +113,7 @@ impl Assessment {
             reasons,
             filesystem,
             medium,
+            encryption,
             copies,
         }
     }
@@ -107,6 +124,7 @@ impl Assessment {
             reasons: vec!["object could not be assessed; coverage is incomplete"],
             filesystem: None,
             medium: "unknown",
+            encryption: Encryption::NotChecked,
             copies: None,
         }
     }
@@ -141,7 +159,9 @@ impl Assessment {
         }
         out.push_str(",\"medium\":");
         json::push_str(out, self.medium);
-        out.push_str(",\"compression\":\"unknown\",\"snapshots\":\"unknown\",\"encryption\":\"not_checked\",\"other_copies\":");
+        out.push_str(",\"compression\":\"unknown\",\"snapshots\":\"unknown\",\"encryption\":");
+        json::push_str(out, self.encryption.as_str());
+        out.push_str(",\"other_copies\":");
         let state = match &self.copies {
             None => "not_checked",
             Some(found) if found.is_empty() => "none_found",
@@ -163,8 +183,11 @@ impl Assessment {
     }
 }
 
+/// the filesystem name, the medium (`Some(true)` for flash) and the encryption fact for an object.
+type StorageFacts = (Option<String>, Option<bool>, Encryption);
+
 #[cfg(target_os = "linux")]
-fn storage_facts(path: &Path, meta: &Metadata) -> (Option<String>, Option<bool>) {
+fn storage_facts(path: &Path, meta: &Metadata) -> StorageFacts {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::MetadataExt;
 
@@ -176,25 +199,28 @@ fn storage_facts(path: &Path, meta: &Metadata) -> (Option<String>, Option<bool>)
         OFlag::O_PATH | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
         Mode::empty(),
     ) else {
-        return (None, None);
+        return (None, None, Encryption::NotChecked);
     };
     let file = std::fs::File::from(fd);
     let Ok(opened) = file.metadata() else {
-        return (None, None);
+        return (None, None, Encryption::NotChecked);
     };
     if opened.dev() != meta.dev() || opened.ino() != meta.ino() || opened.file_type().is_symlink() {
-        return (None, None);
+        return (None, None, Encryption::NotChecked);
     }
     let descriptor = format!("/proc/self/fd/{}", file.as_raw_fd());
     let descriptor = Path::new(&descriptor);
+    let filesystem = storage::assessment_filesystem(descriptor);
+    let encryption = storage::assessment_encryption(descriptor, filesystem.as_deref());
     (
-        storage::assessment_filesystem(descriptor),
+        filesystem,
         storage::assessment_medium(descriptor),
+        encryption,
     )
 }
 
 #[cfg(target_os = "macos")]
-fn storage_facts(path: &Path, meta: &Metadata) -> (Option<String>, Option<bool>) {
+fn storage_facts(path: &Path, meta: &Metadata) -> StorageFacts {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
     let Ok(file) = std::fs::OpenOptions::new()
@@ -202,25 +228,26 @@ fn storage_facts(path: &Path, meta: &Metadata) -> (Option<String>, Option<bool>)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
     else {
-        return (None, None);
+        return (None, None, Encryption::NotChecked);
     };
     let Ok(opened) = file.metadata() else {
-        return (None, None);
+        return (None, None, Encryption::NotChecked);
     };
     if opened.dev() != meta.dev() || opened.ino() != meta.ino() {
-        return (None, None);
+        return (None, None, Encryption::NotChecked);
     }
     (
         nix::sys::statfs::fstatfs(&file)
             .ok()
             .map(|stat| stat.filesystem_type_name().to_owned()),
         None,
+        Encryption::NotChecked,
     )
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn storage_facts(_path: &Path, _meta: &Metadata) -> (Option<String>, Option<bool>) {
-    (None, None)
+fn storage_facts(_path: &Path, _meta: &Metadata) -> StorageFacts {
+    (None, None, Encryption::NotChecked)
 }
 
 #[cfg(test)]
@@ -326,20 +353,57 @@ mod tests {
             Some("other"),
         ] {
             for medium in ["unknown", "flash", "rotational"] {
-                let assessment = Assessment::from_facts(
-                    filesystem.map(str::to_owned),
-                    medium,
-                    false,
-                    true,
-                    None,
-                );
-                assert_eq!(assessment.verdict, "weak");
-                assert!(
-                    assessment
-                        .line()
-                        .contains("compression and snapshots are unknown")
-                );
+                for encryption in [
+                    Encryption::NotChecked,
+                    Encryption::NoneDetected,
+                    Encryption::DmCrypt,
+                    Encryption::Ecryptfs,
+                ] {
+                    let assessment = Assessment::from_facts(
+                        filesystem.map(str::to_owned),
+                        medium,
+                        encryption,
+                        false,
+                        true,
+                        None,
+                    );
+                    assert_eq!(assessment.verdict, "weak");
+                    assert!(
+                        assessment
+                            .line()
+                            .contains("compression and snapshots are unknown")
+                    );
+                }
             }
         }
+    }
+
+    #[test]
+    fn encryption_is_a_fact_and_a_reason_and_never_a_verdict() {
+        let assessment = Assessment::from_facts(
+            Some("ext4".to_owned()),
+            "flash",
+            Encryption::DmCrypt,
+            false,
+            true,
+            None,
+        );
+        let mut fields = String::new();
+        assessment.write_fields(&mut fields);
+        assert!(fields.contains("\"encryption\":\"dm_crypt\""), "{fields}");
+        assert!(
+            assessment
+                .line()
+                .contains("destroying every copy of the key")
+        );
+        assert_eq!(assessment.verdict, "weak");
+        let plain =
+            Assessment::from_facts(None, "unknown", Encryption::NotChecked, false, true, None);
+        let mut fields = String::new();
+        plain.write_fields(&mut fields);
+        assert!(
+            fields.contains("\"encryption\":\"not_checked\""),
+            "{fields}"
+        );
     }
 }

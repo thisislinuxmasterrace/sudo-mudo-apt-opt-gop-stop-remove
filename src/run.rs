@@ -88,7 +88,12 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
 
     // counting walks the whole tree, so it only happens when someone is going to read it.
     let counted = if cli.dry_run || !cli.force {
-        Some(preview::summarize(paths, cli.recursive, &cli.exclude))
+        Some(preview::summarize(
+            paths,
+            cli.recursive,
+            &cli.exclude,
+            cli.allow_protected,
+        ))
     } else {
         None
     };

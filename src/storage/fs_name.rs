@@ -77,7 +77,7 @@ fn magic_bits(raw: i64) -> u64 {
 }
 
 #[cfg(target_os = "linux")]
-pub(super) fn filesystem_name(path: &Path) -> Option<String> {
+pub(crate) fn filesystem_name(path: &Path) -> Option<String> {
     use nix::sys::statfs::statfs;
 
     #[allow(clippy::unnecessary_cast)]
@@ -89,13 +89,13 @@ pub(super) fn filesystem_name(path: &Path) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn filesystem_name(path: &Path) -> Option<String> {
+pub(crate) fn filesystem_name(path: &Path) -> Option<String> {
     let stat = nix::sys::statfs::statfs(path).ok()?;
     Some(stat.filesystem_type_name().to_owned())
 }
 
 #[cfg(windows)]
-pub(super) fn filesystem_name(path: &Path) -> Option<String> {
+pub(crate) fn filesystem_name(path: &Path) -> Option<String> {
     use std::ptr;
     use windows_sys::Win32::Storage::FileSystem::GetVolumeInformationW;
 
@@ -196,7 +196,7 @@ fn mount_entry_in(table: &str, path: &Path) -> Option<(String, String)> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-pub(super) fn filesystem_name(_path: &Path) -> Option<String> {
+pub(crate) fn filesystem_name(_path: &Path) -> Option<String> {
     None
 }
 

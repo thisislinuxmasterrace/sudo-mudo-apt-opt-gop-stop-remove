@@ -11,10 +11,15 @@ use super::fs_name::mount_source;
 /// sysfs; elsewhere, and when the answer is unclear, it is false.
 #[cfg(target_os = "linux")]
 pub(super) fn is_flash(path: &Path) -> bool {
+    medium(path) == Some(true)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn medium(path: &Path) -> Option<bool> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
     let Ok(meta) = std::fs::metadata(path) else {
-        return false;
+        return None;
     };
     let mut dev = meta.dev();
     // btrfs and similar filesystems report an anonymous device (major 0): the disk is the mount source.
@@ -22,7 +27,7 @@ pub(super) fn is_flash(path: &Path) -> bool {
         let source = mount_source(path).and_then(|source| std::fs::metadata(source).ok());
         match source {
             Some(source) if source.file_type().is_block_device() => dev = source.rdev(),
-            _ => return false,
+            _ => return None,
         }
     }
     let block = PathBuf::from(format!(
@@ -30,7 +35,7 @@ pub(super) fn is_flash(path: &Path) -> bool {
         nix::sys::stat::major(dev),
         nix::sys::stat::minor(dev)
     ));
-    non_rotational(&block, 0) == Some(true)
+    non_rotational(&block, 0)
 }
 
 #[cfg(not(target_os = "linux"))]

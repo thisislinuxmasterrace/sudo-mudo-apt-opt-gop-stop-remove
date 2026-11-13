@@ -20,14 +20,15 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `src/run.rs` | `run_erase` and `run_wipe_free`: validation, dry run, log, erase loop, exit code |
 | `src/confirm.rs` | the confirmation: the plain one, the strict one for big `-r` runs, the wipe one |
 | `src/prompt.rs` | the single yes/no question helper, and the exact-text question |
-| `src/preview.rs` | counts what an erase would touch: the summary before the prompt, in dry run and in `--dry-run --json` |
+| `src/preview.rs`, `src/preview/json_output.rs`, `src/preview/tests.rs` | counts and assesses visited entries; text summary, dry-run json and unit tests |
+| `src/assessment.rs` | conservative per-entry verdict, reasons and facts shared by preview and erase reports |
 | `src/safety.rs` | path validation (`validate_target`, `validate_wipe_dir`), protected locations |
 | `src/storage/` | filesystem checks: `mod.rs` (type lists, `classify`, warnings), `fs_name.rs` (filesystem name per os, linux magic table, mountinfo lookups, windows volume root), `flash.rs` (sysfs flash detection), `space.rs` (`available_bytes`) |
 | `src/erase/` | erase of files, directories and symlinks. see below |
 | `src/verify.rs` | `--verify`: the read-back check, and the bytes of the last pass made from a seed |
 | `src/wipe.rs` | `--wipe-free`: fills free space with temporary files, pass by pass |
 | `src/device/` | whole block devices, linux only (`mod.rs` is the entry, `is_device_run`; elsewhere refused with code 1). `linux/`: `target` (names, overlaps), `facts` (refusals, layout), `summary`, `log_check`, `write` (`O_DIRECT`), `sysfs`, `mounts` |
-| `src/log.rs` | the `--log` json lines writer (`create_new`, 0600 on unix, checks against the erased tree) |
+| `src/log.rs`, `src/log/tests.rs` | the `--log` json lines writer (`create_new`, 0600 on unix, checks against the erased tree) and its unit tests |
 | `src/json.rs` | json written by hand, no `serde_json`, for `--log` and `--dry-run --json`; escaping in one place |
 | `src/progress.rs` | the progress line on stderr, drawn only on a terminal |
 | `src/platform/` | windows-only ffi (`windows.rs`): restart manager, posix delete, reboot deletion |
@@ -44,7 +45,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `hard_link.rs` | the hard link rule |
 | `overwrite.rs`, `pattern.rs` | passes and overwrite patterns |
 | `interrupt.rs` | ctrl+c and sigterm during an erase |
-| `report.rs` | log lines and their stop |
+| `report.rs` | captured assessments, stderr reports, log lines and their stop |
 | `tests.rs` | unit tests of the erase |
 | `swap_tests.rs` | unix: an entry swapped between the check and the act, through the test-only hooks in `at::seam` |
 
@@ -60,7 +61,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 4. count the tree (`preview`), unless `-f` and no dry run.
 5. dry run: print the summary or json and return.
 6. print the notes, ask the confirmation (strict where needed), install the interrupt handlers, create the log.
-7. erase each path (`erase::erase_path`), recording log lines; map the outcome to an exit code.
+7. erase each path (`erase::erase_path`), collecting each entry's advisory facts before rename or deletion and reporting them with log lines; map the outcome to an exit code.
 
 `run_wipe_free` validates the directory, refuses network and unknown filesystems, shows the space, asks, installs the handlers and calls `wipe::wipe_free_space`.
 

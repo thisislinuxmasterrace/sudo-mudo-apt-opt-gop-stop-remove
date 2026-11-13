@@ -7,6 +7,10 @@ mod space;
 use std::path::{Path, PathBuf};
 
 use flash::is_flash;
+#[cfg(target_os = "linux")]
+pub(crate) use flash::medium as assessment_medium;
+#[cfg(target_os = "linux")]
+pub(crate) use fs_name::filesystem_name as assessment_filesystem;
 use fs_name::{filesystem_name, remote_drive};
 pub use space::available_bytes;
 
@@ -58,6 +62,15 @@ fn classify(fs_name: &str) -> Kind {
         Kind::Network
     } else {
         Kind::FuseOrUnknown
+    }
+}
+
+pub(crate) fn assessment_fs_reason(name: &str) -> Option<&'static str> {
+    match classify(name) {
+        Kind::Local => None,
+        Kind::CopyOnWrite => Some("copy-on-write filesystem may retain old data"),
+        Kind::Network => Some("network filesystem may retain copies on the server"),
+        Kind::FuseOrUnknown => Some("filesystem is fuse or unrecognized"),
     }
 }
 

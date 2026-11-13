@@ -99,6 +99,27 @@ fn hard_linked_file_inside_a_tree_under_root_exits_with_four() {
     let file = write_file(&tree, "a.txt");
     fs::hard_link(&file, dir.path().join("other.txt")).unwrap();
 
+    let dry = run(&["-r", "--dry-run", "--json", path_str(&tree)], "");
+    assert_exit(&dry, 0);
+    assert!(
+        String::from_utf8_lossy(&dry.stdout).contains("\"assessment_coverage\":\"incomplete\"")
+    );
+    let allowed = run(
+        &[
+            "-r",
+            "--dry-run",
+            "--json",
+            "--i-know-what-i-am-doing",
+            path_str(&tree),
+        ],
+        "",
+    );
+    assert_exit(&allowed, 0);
+    assert!(
+        String::from_utf8_lossy(&allowed.stdout)
+            .contains("\"assessment_coverage\":\"visited_entries\"")
+    );
+
     let out = run(&["-f", "-r", path_str(&tree)], "");
 
     assert_exit(&out, 4);

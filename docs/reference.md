@@ -82,6 +82,11 @@ with `-f` there is no question, so code 3 cannot come from a declined question. 
 | `passes` | the number of passes for files; 0 for everything else |
 | `result` | `ok`, `error`, `skipped`, `kept` or `refused` |
 | `detail` | the warning or error text, empty when there is none |
+| `verdict` | ordinary file runs: `weak` or `cosmetic`; `effective` is reserved and never issued automatically |
+| `reasons` | array of assessment reasons, separate from the operation result |
+| `facts` | `filesystem` (name or `null`), `medium` (`flash`, `rotational`, `unknown`), `compression` and `snapshots` (`unknown`), `encryption` and `other_copies` (`not_checked`) |
+
+assessment fields are collected before rename or deletion, even though the line is written afterwards. directory assessments describe metadata only; children have their own records. uninspected or skipped entries do not establish overwrite effectiveness. see [assessments](guarantees-and-limits.md#assessments). device records keep their existing format.
 
 - the file is created with `create_new`, so an existing file is never overwritten. on unix it gets mode 0600, because the names can be sensitive.
 - contents are never logged. a `--log` line is a record of what the tool did; it does not show that the data is unrecoverable (see [guarantees and limits](guarantees-and-limits.md#what---verify-proves)).
@@ -106,6 +111,8 @@ with `-f` there is no question, so code 3 cannot come from a declined question. 
 | `refused`, `unreadable`, `other` | refused entries, entries that could not be read, special files |
 | `excluded` | entries excluded by `--exclude` |
 | `kept_dirs` | directories kept because of `--exclude` |
+| `assessments` | array for inspected entries: `path`, optional unix `path_bytes`, `verdict`, `reasons`, `facts` with the meanings above |
+| `assessment_coverage` | `incomplete` when entries were skipped, excluded, refused or unreadable; otherwise `visited_entries` |
 
 `--json` is not supported for devices: that is exit code 1.
 

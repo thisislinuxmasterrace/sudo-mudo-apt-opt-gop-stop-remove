@@ -9,6 +9,7 @@ use std::fs::{self, File};
 use std::io;
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use nix::dir::Dir;
@@ -75,7 +76,15 @@ pub fn erase_path(
         let err =
             io::Error::other("is a mount point or on another filesystem, refusing to erase it");
         let (kind, size) = stat_kind(&st);
-        log_object(log, path, kind, size, Outcome::Refused, &err.to_string());
+        log_object(
+            log,
+            path,
+            kind,
+            size,
+            Outcome::Refused,
+            &err.to_string(),
+            &assess_selected(&real, &st),
+        );
         return Err(err);
     }
     let walk = Walk {
@@ -130,6 +139,7 @@ fn erase_object(
 ) -> io::Result<bool> {
     log_stopped(walk.log)?;
     let (kind, size) = stat_kind(st);
+    let assessment = assess_selected(real, st);
     let rule = hard_link_rule(running_as_root(), st.st_nlink > 1, opts.allow_protected);
     let refused = kind == Kind::Other || (kind == Kind::File && rule == HardLinkRule::Refuse);
     let warning = if kind == Kind::File && rule == HardLinkRule::EraseWithWarning {
@@ -140,7 +150,16 @@ fn erase_object(
     // checked before each object, so nothing new is started after a signal.
     let result =
         check_interrupted().and_then(|()| erase_entry(parent, name, st, shown, real, walk, opts));
-    log_done(walk.log, shown, kind, size, &result, refused, warning);
+    log_done(
+        walk.log,
+        shown,
+        kind,
+        size,
+        &result,
+        refused,
+        warning,
+        &assessment,
+    );
     result
 }
 
@@ -159,15 +178,42 @@ fn stat_kind(st: &FileStat) -> (Kind, u64) {
     }
 }
 
+#[allow(clippy::unnecessary_cast)]
+fn assess_selected(path: &Path, st: &FileStat) -> crate::assessment::Assessment {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.dev() == st.st_dev as u64 && meta.ino() == st.st_ino as u64 => {
+            crate::assessment::Assessment::for_path(path, &meta)
+        }
+        _ => crate::assessment::Assessment::unknown(),
+    }
+}
+
 /// writes a skipped line for an entry that is not erased. the entry is only stat'ed for the log.
 #[cfg(unix)]
-fn log_skipped_at(log: Option<&Log>, dir: &File, name: &CStr, shown: &Path, detail: &str) {
-    if log.is_none() {
-        return;
-    }
-    let (kind, size) = fstatat(dir, name, AtFlags::AT_SYMLINK_NOFOLLOW)
-        .map_or((Kind::Other, 0), |st| stat_kind(&st));
-    log_object(log, shown, kind, size, Outcome::Skipped, detail);
+fn log_skipped_at(
+    log: Option<&Log>,
+    dir: &File,
+    name: &CStr,
+    shown: &Path,
+    real: &Path,
+    detail: &str,
+) {
+    let stat = fstatat(dir, name, AtFlags::AT_SYMLINK_NOFOLLOW).ok();
+    let (kind, size) = stat.as_ref().map_or((Kind::Other, 0), stat_kind);
+    let assessment = stat
+        .as_ref()
+        .map_or_else(crate::assessment::Assessment::unknown, |st| {
+            assess_selected(real, st)
+        });
+    log_object(
+        log,
+        shown,
+        kind,
+        size,
+        Outcome::Skipped,
+        detail,
+        &assessment,
+    );
 }
 
 /// erases `name` inside the open directory `parent`. `st` is its stat, taken without following links.
@@ -249,7 +295,14 @@ fn erase_contents(
         // an excluded directory is not entered either.
         if is_excluded(walk.excludes, &entry_rel) {
             excluded += 1;
-            log_skipped_at(walk.log, dir, name, &entry_shown, "excluded by --exclude");
+            log_skipped_at(
+                walk.log,
+                dir,
+                name,
+                &entry_shown,
+                &entry_real,
+                "excluded by --exclude",
+            );
             continue;
         }
         let child = Walk {
@@ -269,6 +322,7 @@ fn erase_contents(
                         size,
                         Outcome::Skipped,
                         "mount point or other filesystem, skipped",
+                        &assess_selected(&entry_real, &st),
                     );
                     Err(io::Error::other(
                         "is a mount point or on another filesystem, skipped",

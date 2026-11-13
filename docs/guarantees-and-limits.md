@@ -27,6 +27,20 @@ each overwrite pass is synced with `fsync` before the next one starts. that push
 
 for flash, copy-on-write and shared storage, use full-disk encryption (filevault, bitlocker, luks) enabled before the data was written, or the drive's own secure erase, and treat an overwrite as a courtesy.
 
+## assessments
+
+ordinary file runs report `verdict`, `reasons` and `facts` separately from the operation result. `result: ok` means the operation succeeded, not that every copy disappeared.
+
+- `weak`: overwriting is best effort. reasons include flash, copy-on-write, network storage, an unknown medium or filesystem, and unchecked compression or snapshots.
+- `cosmetic`: removing a symbolic link does not overwrite its target. target storage is not inspected.
+- `effective`: reserved for proven rotational storage, a suitable filesystem and no interfering compression or snapshots. those conditions are not fully detected, so this version never issues it automatically.
+
+each visited child gets its own storage facts; a directory's assessment concerns its metadata only and does not certify its descendants. skipped, excluded, refused and unreadable entries limit coverage. dry-run json reports `assessment_coverage: incomplete` when any such entries exist; `visited_entries` otherwise describes only the entries inspected, never backups or other copies.
+
+filesystem and medium facts are advisory observations collected before rename or deletion. they do not replace identity checks or authorize an erase. compression and snapshots remain `unknown`; encryption and other copies are `not_checked`. there is no snapshot scan, encryption detection or search for copies in this version. device and free-space runs keep their existing reports.
+
+linux binds storage observations to an open descriptor with checked identity. macos reads the filesystem type through a checked descriptor when opening succeeds; its medium stays unknown. windows and other platforms conservatively leave assessment storage facts unknown. the existing storage warnings remain separate.
+
 ## what `--verify` proves
 
 `--verify` reads each file back after its last overwrite pass and compares it with what that pass wrote. the last pass writes pseudo-random bytes made from a 32-byte seed taken from the system generator for each file. the seed lives in memory for one erase and is never written to disk. the generator is not cryptographic: erasing only needs bytes that differ from the old contents.

@@ -16,7 +16,7 @@ use super::hard_link::check_hard_links;
 use super::interrupt::check_interrupted;
 use super::mount::{device, is_mount_boundary, link_count};
 use super::overwrite::overwrite;
-use super::report::{log_done, log_object, log_stopped, unseen};
+use super::report::{assess, log_done, log_object, log_stopped, unseen};
 use super::walk::{Walk, is_excluded};
 
 /// erases a file, a directory tree, or a symbolic link.
@@ -47,8 +47,18 @@ fn erase_within(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool>
     log_stopped(walk.log)?;
     let meta = fs::symlink_metadata(path).map_err(|err| unseen(walk.log, path, err))?;
     let (kind, size) = meta_kind(&meta);
+    let assessment = crate::assessment::Assessment::for_path(path, &meta);
     let result = check_interrupted().and_then(|()| erase_kind(path, &meta, walk, opts));
-    log_done(walk.log, path, kind, size, &result, kind == Kind::Other, "");
+    log_done(
+        walk.log,
+        path,
+        kind,
+        size,
+        &result,
+        kind == Kind::Other,
+        "",
+        &assessment,
+    );
     result
 }
 
@@ -96,11 +106,16 @@ fn meta_kind(meta: &fs::Metadata) -> (Kind, u64) {
 /// writes a skipped line for an entry that is not erased. the entry is only stat'ed for the log.
 #[cfg(windows)]
 fn log_skipped_path(log: Option<&Log>, path: &Path, detail: &str) {
-    if log.is_none() {
-        return;
-    }
     let (kind, size) = fs::symlink_metadata(path).map_or((Kind::Other, 0), |meta| meta_kind(&meta));
-    log_object(log, path, kind, size, Outcome::Skipped, detail);
+    log_object(
+        log,
+        path,
+        kind,
+        size,
+        Outcome::Skipped,
+        detail,
+        &assess(path),
+    );
 }
 
 #[cfg(windows)]

@@ -37,7 +37,9 @@ would erase build (1 passes)
   ...summary lines...
 ```
 
-with `-f` and no `--dry-run` the summary is not shown and the tree is not counted, so it is not walked twice.
+the text summary shows up to 20 entry assessments; `--dry-run --json` includes all inspected entries. directory metadata and child entries are assessed separately. skipped, excluded, refused, special or unreadable entries limit coverage; see [assessments](guarantees-and-limits.md#assessments).
+
+with `-f` and no `--dry-run` the preliminary summary is not shown and the tree is not counted. assessments are collected during the erase walk and printed on stderr, without another walk or question.
 
 ## confirmation
 

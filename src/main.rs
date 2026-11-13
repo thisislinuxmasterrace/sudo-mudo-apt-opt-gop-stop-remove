@@ -1,5 +1,6 @@
 //! entry point: parses arguments, normalizes the paths and dispatches to an erase, a device erase or `--wipe-free`.
 
+mod assessment;
 mod cli;
 mod confirm;
 mod device;

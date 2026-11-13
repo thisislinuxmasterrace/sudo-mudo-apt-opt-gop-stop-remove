@@ -494,6 +494,24 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn json_summary_keeps_non_utf8_paths_distinct_without_filesystem_access() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let paths = [
+            PathBuf::from("plain.txt"),
+            PathBuf::from(OsStr::from_bytes(b"a\xffb")),
+            PathBuf::from(OsStr::from_bytes(b"a\xfeb")),
+        ];
+
+        let json = to_json(&paths, 1, &Summary::default());
+
+        assert!(json.starts_with("{\"paths\":[\"plain.txt\",\"a\u{fffd}b\",\"a\u{fffd}b\"]"));
+        assert!(json.contains("\"path_bytes\":[null,\"61ff62\",\"61fe62\"]"));
+    }
+
     #[test]
     fn human_bytes_picks_a_unit() {
         assert_eq!(human_bytes(512), "512 b");

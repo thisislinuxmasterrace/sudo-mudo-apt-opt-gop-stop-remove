@@ -279,7 +279,8 @@ fn json_with_wipe_free_is_an_argument_error() {
     assert_exit(&out, 2);
 }
 
-#[cfg(unix)]
+// the macos ci filesystem rejects these byte names before the cli can inspect them.
+#[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn non_utf8_paths_stay_distinct_in_dry_run_and_log() {
     use std::ffi::OsStr;

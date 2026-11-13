@@ -1,3 +1,5 @@
+//! prompts on stderr. a missing answer (eof, read error) always counts as no.
+
 use std::io::{self, IsTerminal};
 
 /// asks a yes/no question on stderr. anything other than "y" or "yes", including EOF, means no.

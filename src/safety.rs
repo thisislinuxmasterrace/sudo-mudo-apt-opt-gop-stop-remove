@@ -1,3 +1,5 @@
+//! path validation before any erase: protected locations are refused unless explicitly allowed.
+
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};

@@ -1,3 +1,5 @@
+// --log json lines and --dry-run --json output.
+// run in the vm only (tests erase files): cargo test --locked --test log_json
 mod common;
 
 use std::fs;
@@ -5,7 +7,6 @@ use std::path::{Path, PathBuf};
 
 use common::*;
 
-/// the lines of a log file, without the line ends.
 fn log_lines(path: &Path) -> Vec<String> {
     fs::read_to_string(path)
         .unwrap()

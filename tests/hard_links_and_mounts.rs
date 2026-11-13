@@ -1,4 +1,5 @@
-// every test here needs unix: hard links, file modes and the mount table have no windows counterpart here.
+// hard link rule and mount point refusals. unix only: no windows counterpart.
+// run in the vm only (tests erase files): cargo test --locked --test hard_links_and_mounts
 #![cfg(unix)]
 
 mod common;

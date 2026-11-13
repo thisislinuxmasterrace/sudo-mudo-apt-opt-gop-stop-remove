@@ -1,3 +1,5 @@
+// progress line and -q, without a terminal.
+// run in the vm only (tests erase files): cargo test --locked --test progress_quiet
 mod common;
 
 use common::*;

@@ -1,6 +1,7 @@
-//! unix erase: the walk of a tree through open directory descriptors, and the erase of each entry.
-//! no entry is looked up by a path below an open directory, so a link swapped in during the walk
-//! cannot redirect it.
+//! unix erase: walks a tree through open directory descriptors and erases each entry.
+//! entries are stat'ed, opened and renamed relative to a descriptor, never by a full path. files and
+//! directories are opened with an identity check; links and emptied directories are removed by name
+//! without one. `real` (canonicalized parent plus names) is used only for mount lookups.
 
 use std::ffi::{CStr, CString, OsStr};
 use std::fs::{self, File};
@@ -54,8 +55,8 @@ pub fn erase_path(
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
     };
-    // the parent is named by the user, so links in it are followed. the entry is looked up
-    // only relative to open directory descriptors, so no later lookup can follow a link.
+    // the parent comes from the user, so links in it are followed; everything below it goes through
+    // the open descriptor.
     let dir = File::open(parent).map_err(|err| unseen(log, path, err))?;
     let entry =
         CString::new(name.as_bytes()).map_err(|err| unseen(log, path, io::Error::other(err)))?;
@@ -64,7 +65,7 @@ pub fn erase_path(
     let real = fs::canonicalize(parent)
         .map_err(|err| unseen(log, path, err))?
         .join(name);
-    // a mount point cannot be renamed away, so it is refused before anything inside it is erased.
+    // a mount point cannot be renamed away: refuse before erasing anything inside it.
     let boundary = fstat(&dir)
         .map_err(io::Error::from)
         .and_then(|parent_st| is_boundary(&st, &parent_st, &real))
@@ -104,7 +105,7 @@ fn erase_object(
     } else {
         ""
     };
-    // checked before each object, so an object the signal reaches is not touched.
+    // checked before each object, so nothing new is started after a signal.
     let result =
         check_interrupted().and_then(|()| erase_entry(parent, name, st, shown, real, walk, opts));
     log_done(walk.log, shown, kind, size, &result, refused, warning);
@@ -138,6 +139,8 @@ fn log_skipped_at(log: Option<&Log>, dir: &File, name: &CStr, shown: &Path, deta
 }
 
 /// erases `name` inside the open directory `parent`. `st` is its stat, taken without following links.
+/// a link is unlinked by name with no identity check: it is never opened, so a swap can only
+/// remove the new entry, not redirect a write.
 #[cfg(unix)]
 fn erase_entry(
     parent: &File,
@@ -165,6 +168,8 @@ fn erase_entry(
     }
 }
 
+/// erases the contents of a directory, then removes it by name. the directory is opened with an
+/// identity check; the final removal is not checked, and fails on a non-empty directory.
 #[cfg(unix)]
 fn erase_dir_at(
     parent: &File,
@@ -212,7 +217,7 @@ fn erase_contents(
         let entry_shown = shown.join(entry);
         let entry_real = real.join(entry);
         let entry_rel = walk.rel.join(entry);
-        // excluded entries are not walked, so an excluded directory is not walked either.
+        // an excluded directory is not entered either.
         if is_excluded(walk.excludes, &entry_rel) {
             excluded += 1;
             log_skipped_at(walk.log, dir, name, &entry_shown, "excluded by --exclude");
@@ -247,8 +252,8 @@ fn erase_contents(
         match result {
             Ok(inside_kept) => kept_inside |= inside_kept,
             Err(err) => {
-                // an interrupt ends the walk: the entries after this one are left as they are. only the
-                // innermost entry is named, the directories above it are not repeated.
+                // an interrupt ends the walk. only the innermost entry is reported; directories above
+                // it just pass the error up.
                 if err.kind() == io::ErrorKind::Interrupted {
                     if !is_directory_at(dir, name) {
                         eprintln!("{}: {err}", entry_shown.display());
@@ -278,7 +283,7 @@ fn erase_contents(
 /// names in `dir` except `.` and `..`, read before anything is erased.
 #[cfg(unix)]
 fn list_names(dir: &File) -> io::Result<Vec<CString>> {
-    // fdopendir takes ownership of its descriptor, so the listing reads a duplicate.
+    // fdopendir takes ownership of the descriptor, so list a duplicate.
     let mut listing = Dir::from_fd(OwnedFd::from(dir.try_clone()?))?;
     let mut names = Vec::new();
     for entry in listing.iter() {
@@ -302,7 +307,7 @@ fn erase_file_at(
     opts: &Options,
 ) -> io::Result<()> {
     check_hard_links(shown, st.st_nlink > 1, opts)?;
-    // the read-back needs the owner's read bit as well as the write bit.
+    // --verify reads the file back, so it needs the read bit too.
     let owner_bits = if opts.verify {
         Mode::S_IRUSR | Mode::S_IWUSR
     } else {
@@ -323,15 +328,15 @@ fn overwrite_hidden(parent: &File, hidden: &CStr, st: &FileStat, opts: &Options)
     } else {
         OFlag::O_WRONLY
     };
-    // nonblock: a fifo swapped in for the file must not block the open. noctty: it must not
-    // become the controlling terminal of this process.
+    // nonblock: a fifo swapped in must not block the open. noctty: a tty swapped in must not become
+    // the controlling terminal.
     let mut file = open_checked(
         parent,
         hidden,
         access | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_NOCTTY | OFlag::O_CLOEXEC,
         st,
     )?;
-    // the length comes from the handle being overwritten, not from a second lookup by name.
+    // length from the open handle, not from a second lookup.
     let whole = 0..file.metadata()?.len();
     let expected = opts.verify.then(Expected::new);
     overwrite(

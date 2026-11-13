@@ -1,3 +1,5 @@
+// ctrl+c and sigterm during an erase (unix).
+// run in the vm only (tests erase files): cargo test --locked --test signals
 mod common;
 
 /// signal tests: the handlers are installed once the erase has started, so the tests wait for the
@@ -26,8 +28,6 @@ mod interrupt {
         path: String,
     }
 
-    /// erases a large file with `-f -v -n 3`, sends `signals` one after the other, and returns
-    /// what was left behind.
     fn erase_and_interrupt(signals: &[Signal]) -> Run {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("big.bin");

@@ -1,3 +1,5 @@
+// --verify read-back after the last pass.
+// run in the vm only (tests erase files): cargo test --locked --test verify
 mod common;
 
 use std::fs;

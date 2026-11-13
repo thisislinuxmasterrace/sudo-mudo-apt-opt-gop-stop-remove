@@ -10,9 +10,9 @@ use crate::{
     storage, wipe,
 };
 
-/// a mount point given as a target is refused before anything is erased, so nothing is erased before
-/// the refusal. inside a tree the erase skips it instead. unix only: `is_target_boundary` opens the parent
-/// directory, which windows does not allow, so on windows it would refuse every target.
+/// a mount point given as a target is refused up front; inside a tree the erase skips it instead.
+/// unix only: `is_target_boundary` opens the parent directory, which windows does not allow, so on
+/// windows it would refuse every target.
 #[cfg(unix)]
 fn target_is_mount_point(path: &Path) -> bool {
     match preview::is_target_boundary(path) {

@@ -1,3 +1,5 @@
+// --files-from and -0: list parsing (newline, nul, crlf, stdin, empty entries).
+// run in the vm only (tests erase files): cargo test --locked --test files_from
 mod common;
 
 use std::fs;

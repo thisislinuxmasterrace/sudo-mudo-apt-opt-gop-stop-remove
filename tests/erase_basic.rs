@@ -1,3 +1,5 @@
+// basic erase behaviour: dry run, -f, -r, symlinks, read-only files, repeated paths.
+// run in the vm only (tests erase files): cargo test --locked --test erase_basic
 mod common;
 
 use std::fs;

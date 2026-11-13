@@ -1,5 +1,6 @@
-//! windows erase: the walk by path, the handling of files held by another process, and the posix
-//! delete. the lock handling calls into `crate::platform::windows`.
+//! windows erase: walks by path (no descriptor-relative lookups, so a swap during the walk is not
+//! guarded against), handles files held by another process, and deletes with posix semantics.
+//! exercised only on ci runners, not on real windows hardware.
 
 use std::fs::{self, File};
 use std::io;
@@ -106,9 +107,9 @@ fn log_skipped_path(log: Option<&Log>, path: &Path, detail: &str) {
 fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
     make_writable(path, true)?;
 
-    // collect entries first so the directory is not modified while it is being iterated.
+    // list first, so the directory is not changed while it is iterated.
     let entries: Vec<fs::DirEntry> = fs::read_dir(path)?.collect::<io::Result<_>>()?;
-    // never erase what is mounted inside the tree: that is another disk or the source of a bind mount.
+    // entries on another device (a mount) are skipped, not erased.
     let parent_dev = device(&fs::symlink_metadata(path)?);
     let mut failed = 0usize;
     let mut excluded = 0usize;
@@ -116,7 +117,7 @@ fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
     for entry in &entries {
         let entry_path = entry.path();
         let entry_rel = walk.rel.join(entry.file_name());
-        // excluded entries are not walked, so an excluded directory is not walked either.
+        // an excluded directory is not entered either.
         if is_excluded(walk.excludes, &entry_rel) {
             excluded += 1;
             log_skipped_path(walk.log, &entry_path, "excluded by --exclude");
@@ -177,17 +178,15 @@ fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
     unlink_with_random_name(path, true).map(|()| false)
 }
 
-/// overwrites the file's contents, then deletes it.
-///
-/// if deletion fails after the overwrite, the contents are already destroyed
-/// but the file itself remains.
+/// overwrites the file's contents, then deletes it. if the delete fails, the contents are already
+/// gone and the file remains.
 #[cfg(windows)]
 fn erase_file(path: &Path, opts: &Options) -> io::Result<()> {
     make_writable(path, false)?;
 
     match open_for_overwrite(path) {
         Ok(mut file) => {
-            // the length comes from the handle being overwritten, not from a second lookup by name.
+            // length from the open handle, not from a second lookup.
             let meta = file.metadata()?;
             check_hard_links(path, link_count(&meta) > 1, opts)?;
             overwrite_in_place(&mut file, meta.len(), opts)?;
@@ -309,15 +308,15 @@ fn open_for_overwrite(path: &Path) -> io::Result<File> {
     windows::open_for_erase(path)
 }
 
-/// sharing violation, lock violation, or access denied (which windows also returns
+/// sharing violation (32), lock violation (33), or access denied (5, which windows also returns
 /// for delete-pending files).
 #[cfg(windows)]
 fn is_locked(err: &io::Error) -> bool {
     matches!(err.raw_os_error(), Some(5 | 32 | 33))
 }
 
-/// windows: posix delete first (removes the name even while other handles are open),
-/// then rename and delete, then deletion at the next reboot (only if not forced).
+/// deletes the entry: posix delete first (removes the name even while other handles are open),
+/// then rename and delete, then deletion at the next reboot (asked first; never with `-f`).
 #[cfg(windows)]
 fn remove_entry(path: &Path, opts: &Options) -> io::Result<()> {
     if let Ok(handle) = windows::open_for_delete(path)
@@ -345,14 +344,14 @@ fn remove_entry(path: &Path, opts: &Options) -> io::Result<()> {
 /// clears the read-only flag so the entry can be overwritten and renamed.
 #[cfg(windows)]
 fn make_writable(path: &Path, is_dir: bool) -> io::Result<()> {
-    // permissions are changed through the path, so refuse a symlink that replaced it.
+    // permissions change by path: refuse a symlink here (check-then-change, a small race remains).
     let meta = fs::symlink_metadata(path)?;
     if meta.file_type().is_symlink() {
         return Err(io::Error::other(
             "refusing to change permissions of a symbolic link",
         ));
     }
-    // cloud and dedup reparse points get their readonly flag cleared before open_for_erase refuses them.
+    // note: cloud and dedup reparse points lose the readonly flag here, before open_for_erase refuses them.
     let mut perms = meta.permissions();
     if !perms.readonly() {
         return Ok(());
@@ -366,8 +365,8 @@ fn set_writable(perms: &mut fs::Permissions, _is_dir: bool) {
     perms.set_readonly(false);
 }
 
-/// renames the entry to a random hidden name in the same directory, then deletes it,
-/// so the original name does not remain in the directory.
+/// renames the entry to a random hidden name in the same directory, then deletes it, so the
+/// original name does not stay. by path, with no identity check.
 #[cfg(windows)]
 fn unlink_with_random_name(path: &Path, is_dir: bool) -> io::Result<()> {
     let dir = path.parent().unwrap_or(Path::new(""));
@@ -387,7 +386,7 @@ fn unlink_with_random_name(path: &Path, is_dir: bool) -> io::Result<()> {
     match removed {
         Ok(()) => Ok(()),
         Err(remove_err) => {
-            // put the name back so the entry is not left hidden; if that fails, report where it is.
+            // put the name back; if that fails, report where the entry is.
             match fs::rename(&hidden, path) {
                 Ok(()) => Err(remove_err),
                 Err(_) => Err(io::Error::other(format!(

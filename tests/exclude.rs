@@ -1,3 +1,5 @@
+// --exclude globs with -r.
+// run in the vm only (tests erase files): cargo test --locked --test exclude
 mod common;
 
 use std::fs;

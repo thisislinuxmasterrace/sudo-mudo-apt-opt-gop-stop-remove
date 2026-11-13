@@ -1,3 +1,5 @@
+// exit codes (0 to 4) and argument validation.
+// run in the vm only (tests erase files): cargo test --locked --test exit_codes
 mod common;
 
 use common::*;

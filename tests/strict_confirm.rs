@@ -1,3 +1,5 @@
+// strict confirmation for big -r runs: type the directory name instead of y.
+// run in the vm only (tests erase files): cargo test --locked --test strict_confirm
 mod common;
 
 use std::fs;

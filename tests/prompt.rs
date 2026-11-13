@@ -1,3 +1,5 @@
+// the y/n confirmation: accept, decline, empty answer, eof.
+// run in the vm only (tests erase files): cargo test --locked --test prompt
 mod common;
 
 use common::*;

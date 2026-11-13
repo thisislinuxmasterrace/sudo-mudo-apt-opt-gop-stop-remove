@@ -1,3 +1,5 @@
+//! command line definition. the doc comments on `Cli` are the `--help` text and the man page.
+
 use std::path::PathBuf;
 
 use clap::Parser;

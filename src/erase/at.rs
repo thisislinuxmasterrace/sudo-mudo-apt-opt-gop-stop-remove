@@ -1,5 +1,6 @@
-//! the openat primitives of the unix erase: lookups by name inside an open directory, identity checks,
-//! mode changes, and the rename to a hidden name that comes before every delete.
+//! openat primitives of the unix erase: opens and mode changes with an identity check (dev, ino, type),
+//! and the rename to a hidden name before a delete. renames and unlinks work by name and are not
+//! identity-checked, except that `hide_entry` verifies the entry after the rename.
 
 use std::ffi::{CStr, CString, OsStr};
 use std::fs::File;
@@ -14,8 +15,9 @@ use nix::fcntl::{AtFlags, OFlag, openat, renameat};
 use nix::sys::stat::{FchmodatFlags, FileStat, Mode, SFlag, fchmodat, fstat, fstatat};
 use nix::unistd::{UnlinkatFlags, unlinkat};
 
-/// renames the entry to a random hidden name in `parent`. the rename is undone when the entry
-/// under the hidden name is not the one `st` describes.
+/// renames the entry to a random hidden name in `parent`, then checks it against `st`. the check
+/// comes after the rename, so a swapped entry is moved first and then put back. the rename has no
+/// RENAME_NOREPLACE, but the hidden name was free just before.
 #[cfg(unix)]
 pub(super) fn hide_entry(
     parent: &File,
@@ -88,7 +90,7 @@ pub(super) fn make_owner_accessible(
 /// /proc, so the change lands on that inode even if the name is swapped meanwhile.
 #[cfg(target_os = "linux")]
 fn set_mode_at(parent: &File, name: &CStr, st: &FileStat, mode: Mode) -> io::Result<()> {
-    // O_PATH needs no access to the entry itself, only search permission on `parent`.
+    // O_PATH needs no access to the entry, only search permission on `parent`.
     let handle = open_checked(
         parent,
         name,
@@ -96,7 +98,7 @@ fn set_mode_at(parent: &File, name: &CStr, st: &FileStat, mode: Mode) -> io::Res
         st,
     )?;
     let proc_path = format!("/proc/self/fd/{}", handle.as_raw_fd());
-    // the path is absolute, so `parent` is not used for the lookup.
+    // the path is absolute, so the dirfd is ignored; the /proc link resolves to the checked inode.
     fchmodat(
         parent,
         proc_path.as_str(),
@@ -107,7 +109,7 @@ fn set_mode_at(parent: &File, name: &CStr, st: &FileStat, mode: Mode) -> io::Res
 }
 
 /// other unix systems have no path handle without access to the entry, so the change goes by
-/// name, with the identity checked right before it.
+/// name. the identity is checked just before it, which leaves a small race. it ignores the file type.
 #[cfg(all(unix, not(target_os = "linux")))]
 fn set_mode_at(parent: &File, name: &CStr, st: &FileStat, mode: Mode) -> io::Result<()> {
     let now = fstatat(parent, name, AtFlags::AT_SYMLINK_NOFOLLOW)?;
@@ -118,7 +120,8 @@ fn set_mode_at(parent: &File, name: &CStr, st: &FileStat, mode: Mode) -> io::Res
 }
 
 /// renames the entry to a random hidden name in `parent`, then deletes it, so the original name
-/// does not remain in the directory.
+/// does not stay in the directory. no identity check: used for directories that were already
+/// opened and emptied.
 #[cfg(unix)]
 pub(super) fn remove_at(parent: &File, name: &CStr, is_dir: bool, shown: &Path) -> io::Result<()> {
     let hidden = hidden_name(parent)?;
@@ -126,7 +129,8 @@ pub(super) fn remove_at(parent: &File, name: &CStr, is_dir: bool, shown: &Path) 
     remove_hidden(parent, name, &hidden, is_dir, shown)
 }
 
-/// deletes the entry that was renamed to `hidden`. if that fails, the name is put back.
+/// deletes the entry under `hidden`, by name and without an identity check. if that fails, the
+/// name is put back.
 #[cfg(unix)]
 pub(super) fn remove_hidden(
     parent: &File,
@@ -147,7 +151,8 @@ pub(super) fn remove_hidden(
 /// renames the hidden entry back to `name`. on failure returns where the entry is now.
 #[cfg(unix)]
 fn put_back(parent: &File, name: &CStr, hidden: &CStr, shown: &Path) -> Result<(), PathBuf> {
-    // a name taken in the meantime is not replaced by the rename back.
+    // skip the rename back when `name` was taken meanwhile. check-then-rename: renameat has no
+    // RENAME_NOREPLACE, so a name created in between could still be replaced.
     let name_free = matches!(
         fstatat(parent, name, AtFlags::AT_SYMLINK_NOFOLLOW),
         Err(Errno::ENOENT)
@@ -205,7 +210,7 @@ pub(super) fn is_directory_at(dir: &File, name: &CStr) -> bool {
     )
 }
 
-/// a random name that is free in `parent`. only ENOENT from fstatat on the directory counts as free.
+/// a random name that is free in `parent` (ENOENT from fstatat). free at check time only.
 #[cfg(unix)]
 fn hidden_name(parent: &File) -> io::Result<CString> {
     loop {

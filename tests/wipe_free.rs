@@ -1,3 +1,5 @@
+// --wipe-free argument handling and refusals; none of these tests fills a disk.
+// run in the vm only: cargo test --locked --test wipe_free
 mod common;
 
 use std::fs;

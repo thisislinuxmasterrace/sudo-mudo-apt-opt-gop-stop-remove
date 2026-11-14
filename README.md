@@ -2,15 +2,15 @@
 
 when you really want to delete something
 
-a command-line tool for windows, macos and linux. it overwrites the contents of files, renames them to a random hidden name and deletes them. it can also fill the free space of a volume (`--wipe-free`) and, on linux, overwrite a whole disk or partition.
+a command-line tool for windows, macos and linux. it overwrites file contents before deleting files and can erase directory trees. it can also fill the free space of a volume (`--wipe-free`) and, on linux, overwrite a whole disk or partition.
 
 ## what overwriting can and cannot do
 
 file runs report an advisory verdict with reasons in the summary, dry-run json and log. `weak` means best effort; `cosmetic` means removing a link without overwriting its target. `effective` is reserved for proven conditions and is not issued automatically. directory entries describe metadata only; their visited children get separate assessments. see [assessment limits](docs/guarantees-and-limits.md#assessments).
 
-the tool overwrites through the filesystem. that is a real erase mostly on a hard disk with a filesystem that rewrites blocks in place (ext4, xfs, ntfs, fat) and no snapshots. on ssd and nvme drives, on copy-on-write filesystems (apfs, btrfs, zfs, refs), with journals, snapshots, backups, caches or remote storage, it is best effort: an older copy of the data can survive where the tool cannot reach it. when the data matters, use full-disk encryption from the start, or the drive's own secure erase. details: [guarantees and limits](docs/guarantees-and-limits.md).
+the tool overwrites through the filesystem. a hard disk with a filesystem that rewrites blocks in place (ext4, xfs, ntfs, fat) offers the best chance of replacing the original file data, but this tool does not prove that every copy is gone. on ssd and nvme drives, on copy-on-write filesystems (apfs, btrfs, zfs, refs), with journals, snapshots, backups, caches or remote storage, an older copy can survive where the tool cannot reach it. when the data matters, use full-disk encryption from the start, or the drive's own secure erase. details: [guarantees and limits](docs/guarantees-and-limits.md).
 
-status: version 0.1.0, early development. the windows code has only been exercised by ci, not on real windows hardware. erasing devices on linux is experimental and not tested on real disks. the full list is in [guarantees and limits](docs/guarantees-and-limits.md#what-is-not-verified).
+status: version 0.1.0, early development. windows has been exercised in ci and in a limited windows 11 virtual machine test, not on real windows hardware. erasing devices on linux is experimental and not tested on real disks. the full list is in [guarantees and limits](docs/guarantees-and-limits.md#what-is-not-verified).
 
 ## install
 

@@ -13,6 +13,7 @@ sudo-mudo-apt-opt-gop-stop-remove --wipe-free /home -n 3
 
 each pass creates temporary files in `<dir>`, writes one pattern (zeros, ones, random; the last pass is random) into new blocks until the volume is full, then removes them. on unix, a filesystem with a file size limit, such as fat32, gets several files per pass. on windows, file-size-limit errors currently stop the pass.
 the files stay open until the pass ends, keeping their blocks allocated while the next file is filled.
+each retained file uses an open handle. if the process reaches its open-file limit before the volume is full, the run fails and releases the temporary files; it does not report a completed wipe.
 
 - nothing in `<dir>` is changed. the temporary files are unlinked on unix and deleted on close on windows, so a killed process leaves nothing behind.
 - the dry run and the prompt show the space available to the current user. blocks reserved for root (ext4 reserves 5% by default) are not available to ordinary users and are wiped only when run as root. if nothing could be written, the run fails with a message (exit code 4).
@@ -32,7 +33,7 @@ copy-on-write filesystems (apfs, btrfs, zfs, refs, bcachefs) are allowed with a 
 
 ## limits
 
-writing through the filesystem reaches the blocks the filesystem considers free and no others. it is a real erase mostly on a hard disk with a filesystem that writes in place. elsewhere it is best effort:
+writing through the filesystem reaches only the blocks allocated to the temporary files. a full pass does not prove that every old copy is gone, even on a hard disk:
 
 - ssd and nvme: remapped blocks and over-provisioned space are never offered to the filesystem, so they are not written. a full volume does not mean every physical cell was overwritten.
 - copy-on-write filesystems may place the fill in new blocks while older ones keep the data.

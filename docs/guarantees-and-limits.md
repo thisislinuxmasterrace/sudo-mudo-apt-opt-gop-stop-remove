@@ -1,6 +1,6 @@
 # guarantees and limits
 
-what an erase can and cannot do. the short version: the tool overwrites through the filesystem, which is a real erase mostly on a hard disk with a filesystem that rewrites blocks in place and no snapshots. everywhere else it is best effort, and encryption or the drive's own erase is the real answer.
+what an erase can and cannot do. the tool overwrites through the filesystem. in-place writes on a hard disk offer the best chance of replacing original data, but the tool does not prove that every copy is gone. encryption enabled before the data was written or the drive's own erase may be more appropriate; each has its own requirements.
 
 contents: [by kind of storage](#by-kind-of-storage) · [what `--verify` proves](#what---verify-proves) · [other limits](#other-limits) · [before selling or giving away a device](#before-selling-or-giving-away-a-device) · [what is not verified](#what-is-not-verified)
 
@@ -8,7 +8,7 @@ contents: [by kind of storage](#by-kind-of-storage) · [what `--verify` proves](
 
 | storage | what an overwrite does |
 | --- | --- |
-| hard disk, filesystem that writes in place (ext4, xfs, ntfs, fat), no snapshots | rewrites the blocks that held the data. the one case where the tool is a real erase of file contents |
+| hard disk, filesystem that writes in place (ext4, xfs, ntfs, fat), no snapshots | may replace the blocks that held the data; the tool does not prove that no journal, cache, remapped block or other copy retains it |
 | ssd, nvme, other flash (usb sticks, sd cards) | wear leveling and remapped blocks send a write to a new physical block. the old block can stay readable until the drive reuses it, and the tool cannot reach it |
 | copy-on-write filesystem (apfs, btrfs, zfs, refs, bcachefs) | writes go to new blocks, so the old ones may keep the data. refs block cloning can also make files share clusters |
 | journaling | a journal can keep copies of the data |
@@ -88,7 +88,8 @@ on linux the tool can overwrite a whole hard disk or partition ([devices](device
 
 ## what is not verified
 
-- all windows code (locks, posix delete, reboot deletion, console handler, file identity for `--log`, mount points and junctions, hard links, ntfs streams) compiles for the windows target and has been reviewed, but has not been tested on real windows hardware. ci runs `tests/windows/locks.ps1` on a windows runner.
+- recursive walks depend on the process stack and open-file limits. a 1000-level tree passed on linux with an 8 mib stack; a 160-level tree aborted with a deliberately reduced 256 kib stack. unlimited nesting is not supported. an open-file-limit error is reported, but stack exhaustion can abort the process before normal cleanup.
+- windows runtime coverage includes ci and three lock scenarios on a windows 11 virtual machine using a gnu build of an earlier version: plain erase, refusal of a locked file, and holder shutdown. later ci ran four lock scenarios including a unicode path, `--verify`, json logging and restart manager shutdown; it also exercised junction and custom reparse-point cases. this is not real hardware evidence. antivirus, cloud providers, refs, compressed ntfs, alternate streams, reboot deletion, console interrupts, log identity and volume mount points remain unverified.
 - erasing devices on linux has not been tested on real disks, usb or partitions. ci runs unit tests of the device functions and the refusal tests; it never erases a real device. macos and windows devices are not implemented.
 - macos bind mounts (bindfs, nullfs) are found through `getmntinfo` but have not been tried on real hardware; the script `tests/manual/macos_bind_mount.sh` has not been run. fail-closed behaviour when `getmntinfo` fails is unchecked on hardware.
 - refs detection has not been tried on a real refs volume. `fuseblk` (ntfs-3g) is refused by `--wipe-free` by type and has not been tried on a real mount.

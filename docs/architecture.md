@@ -102,4 +102,4 @@ a behaviour change usually needs the matching page in `docs/` updated; `README.m
 
 ## tests
 
-integration tests run the real binary and are grouped by topic in `tests/*.rs`: `erase_basic`, `exclude`, `exit_codes`, `files_from`, `hard_links_and_mounts`, `log_json`, `progress_quiet`, `prompt`, `signals`, `strict_confirm`, `verify`, `wipe_free`. helpers are in `tests/common/mod.rs`. unit tests sit next to the code. scripts that are not part of `cargo test` are in [development](development.md#scripts).
+integration tests run the real binary and are grouped by topic in `tests/*.rs`: `assessments`, `erase_basic`, `exclude`, `exit_codes`, `explain`, `files_from`, `hard_links_and_mounts`, `log_json`, `progress_quiet`, `prompt`, `signals`, `sparse`, `strict_confirm`, `verify`, `wipe_free`. helpers are in `tests/common/mod.rs`. unit tests sit next to the code. scripts that are not part of `cargo test` are in [development](development.md#scripts).

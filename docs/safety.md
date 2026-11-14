@@ -48,7 +48,7 @@ the home directory (`$HOME` or the passwd entry on unix, `%USERPROFILE%` on wind
 - inside `-r`, a mount point or another filesystem is skipped and reported, the directory that holds it is kept, and the run ends with code 4.
 - the mount table is read from `/proc/self/mountinfo` on linux and `getmntinfo` on macos, so bind mounts are found. it is read again for each path given on the command line, so a mount made while an earlier path was erased is seen; a mount made during the walk of one path is not. mount points that are not utf-8 are compared as bytes. on linux the path of the opened parent directory is taken from its descriptor (`/proc/self/fd`) and checked to be the same directory before it is used for the lookup. on other bsds only the device id is compared, so a bind mount there can be erased through its source.
 - if the mount table cannot be read, every entry that is not a link is refused and reported (fail closed).
-- on windows, mount points and junctions count as links: removed as links, content untouched. untested on windows.
+- on windows, mount points and junctions count as links: removed as links, content untouched. a junction was tested in windows ci; volume mount points have not been verified.
 
 ## hard links
 

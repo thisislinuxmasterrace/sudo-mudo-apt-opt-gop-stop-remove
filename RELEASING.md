@@ -50,7 +50,7 @@ done
 (cd sudo-mudo-apt-opt-gop-stop-remove && npm publish --dry-run)
 ```
 
-publish the platform packages first and the launcher last, otherwise installs briefly fail. add `--tag next` to every `npm publish` of a prerelease, otherwise it becomes `latest`. `build.mjs` wipes its `--out` directory: it refuses the repo root, its ancestors, the home directory, `/`, and a non-empty directory without the marker file it writes. after 72 hours a version can no longer be unpublished; use `npm deprecate` instead.
+publish the platform packages first and the launcher last, otherwise installs briefly fail. add `--tag next` to every `npm publish` of a prerelease, otherwise it becomes `latest`. `build.mjs` rejects malformed tags before replacing output. it wipes its `--out` directory: it refuses the repo root, its ancestors, the home directory, `/`, and a non-empty directory without the marker file it writes. after 72 hours a version can no longer be unpublished; use `npm deprecate` instead.
 
 ## 5. verify
 

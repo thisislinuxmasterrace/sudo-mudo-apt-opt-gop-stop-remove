@@ -60,7 +60,7 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === "--assets") args.assets = path.resolve(argv[++i]);
     else if (arg === "--out") args.out = path.resolve(argv[++i]);
-    else if (!args.tag && /^v\d+\.\d+\.\d+/.test(arg)) args.tag = arg;
+    else if (!args.tag && /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(arg)?.[0] === arg) args.tag = arg;
     else throw new Error(`unexpected argument: ${arg}`);
   }
   if (!args.tag) throw new Error("usage: node npm/build.mjs vX.Y.Z [--assets <dir>] [--out <dir>]");

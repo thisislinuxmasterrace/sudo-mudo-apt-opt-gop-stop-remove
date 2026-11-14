@@ -26,8 +26,8 @@ const out = path.join(tmp, "dist");
 const fake = '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\nprocess.exit(37);\n';
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-function runBuild(output = out, input = assets) {
-  const result = spawnSync(process.execPath, [path.join(root, "npm/build.mjs"), tag, "--assets", input, "--out", output], { encoding: "utf8", timeout: 30000, killSignal: "SIGKILL" });
+function runBuild(output = out, input = assets, releaseTag = tag) {
+  const result = spawnSync(process.execPath, [path.join(root, "npm/build.mjs"), releaseTag, "--assets", input, "--out", output], { encoding: "utf8", timeout: 30000, killSignal: "SIGKILL" });
   assert.ifError(result.error);
   return result;
 }
@@ -112,4 +112,31 @@ test("rejects a checksum mismatch", () => {
   const result = runBuild(path.join(tmp, "bad-checksum"), invalid);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /checksum mismatch/);
+});
+
+test("rejects malformed tags before clearing a previous build", () => {
+  const guarded = path.join(tmp, "previous-build");
+  fs.mkdirSync(guarded);
+  fs.writeFileSync(path.join(guarded, `.${name}-npm-dist`), "previous build");
+  const sentinel = path.join(guarded, "sentinel");
+  fs.writeFileSync(sentinel, "keep");
+  for (const invalid of ["v0.0.0/other", "v0.0.0suffix", "v0.0.0 ", "v0.0.0\n"]) {
+    const result = runBuild(guarded, assets, invalid);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /unexpected argument/);
+    assert.equal(fs.readFileSync(sentinel, "utf8"), "keep");
+  }
+});
+
+test("accepts prerelease tags with build metadata", () => {
+  const releaseTag = "v0.0.0-rc.1+build.2";
+  const input = path.join(tmp, "prerelease-assets");
+  fs.mkdirSync(input);
+  for (const file of fs.readdirSync(assets)) {
+    fs.copyFileSync(path.join(assets, file), path.join(input, file.replace(tag, releaseTag)));
+  }
+  const output = path.join(tmp, "prerelease-dist");
+  const result = runBuild(output, input, releaseTag);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(json(path.join(output, name, "package.json")).version, releaseTag.slice(1));
 });

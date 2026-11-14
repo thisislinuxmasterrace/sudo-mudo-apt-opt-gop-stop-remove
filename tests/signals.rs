@@ -9,7 +9,7 @@ mod interrupt {
     use std::fs::{self, File};
     use std::io::{BufRead, BufReader, Read, Write};
     use std::path::Path;
-    use std::process::Stdio;
+    use std::process::{Command, Stdio};
 
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
@@ -20,6 +20,22 @@ mod interrupt {
     // line, which is printed before the first pass starts, and a pass over 128 MiB with a sync takes far longer
     // than delivering a signal. the interrupt is checked before each object and in every 1 MiB write chunk.
     const BIG_FILE: u64 = 128 * 1024 * 1024;
+
+    fn signal_command() -> Command {
+        let mut command = Command::new("sudo");
+        // exec preserves the reported pid; signal mudo itself rather than sudo's monitor process.
+        command
+            .args([
+                "-n",
+                "sh",
+                "-c",
+                "printf 'signal-target:%s\\n' \"$$\" >&2; exec \"$@\"",
+                "sh",
+            ])
+            .arg(BIN)
+            .args(["apt", "opt", "gop", "stop", "remove"]);
+        command
+    }
 
     fn create_big_file(path: &Path) {
         let mut file = File::create(path).unwrap();
@@ -44,7 +60,7 @@ mod interrupt {
         let file = dir.path().join("big.bin");
         create_big_file(&file);
 
-        let mut child = command()
+        let mut child = signal_command()
             .args(["-f", "-v", "-n", "3", path_str(&file)])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -53,6 +69,7 @@ mod interrupt {
             .expect("failed to start binary");
         let mut reader = BufReader::new(child.stderr.take().unwrap());
         let mut stderr = String::new();
+        let mut target = None;
         loop {
             let mut line = String::new();
             assert!(
@@ -60,12 +77,15 @@ mod interrupt {
                 "erase did not start"
             );
             stderr.push_str(&line);
+            if let Some(pid) = line.strip_prefix("signal-target:") {
+                target = Some(pid.trim().parse::<i32>().unwrap());
+            }
             if line.starts_with("erasing ") {
                 break;
             }
         }
 
-        let pid = Pid::from_raw(child.id() as i32);
+        let pid = Pid::from_raw(target.expect("sudo shell did not report the target pid"));
         for signal in signals {
             kill(pid, *signal).unwrap();
         }
@@ -139,7 +159,7 @@ mod interrupt {
         fs::create_dir_all(tree.join("sub")).unwrap();
         create_big_file(&tree.join("sub/big.bin"));
 
-        let mut child = command()
+        let mut child = signal_command()
             .args(["-f", "-r", "-v", "-n", "3", path_str(&tree)])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -148,6 +168,7 @@ mod interrupt {
             .expect("failed to start binary");
         let mut reader = BufReader::new(child.stderr.take().unwrap());
         let mut stderr = String::new();
+        let mut target = None;
         loop {
             let mut line = String::new();
             assert!(
@@ -155,11 +176,18 @@ mod interrupt {
                 "erase did not start"
             );
             stderr.push_str(&line);
+            if let Some(pid) = line.strip_prefix("signal-target:") {
+                target = Some(pid.trim().parse::<i32>().unwrap());
+            }
             if line.starts_with("  pass 1/3:") {
                 break;
             }
         }
-        kill(Pid::from_raw(child.id() as i32), Signal::SIGINT).unwrap();
+        kill(
+            Pid::from_raw(target.expect("sudo shell did not report the target pid")),
+            Signal::SIGINT,
+        )
+        .unwrap();
         reader.read_to_string(&mut stderr).unwrap();
         let status = child.wait().unwrap();
 

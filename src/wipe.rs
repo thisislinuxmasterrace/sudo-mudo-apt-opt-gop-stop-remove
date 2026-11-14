@@ -61,7 +61,7 @@ fn wipe_each_pass(
     Ok(total)
 }
 
-/// fills the free space with one pattern. a file that hits the filesystem's size limit (fat32)
+/// fills the free space with one pattern. on unix, a file that hits the filesystem's size limit (fat32)
 /// is followed by another file, until the volume is full or `limit` bytes are written.
 /// returns the bytes written in this pass.
 fn fill_pass(
@@ -71,14 +71,29 @@ fn fill_pass(
     verbose: bool,
     progress: &mut Progress,
 ) -> io::Result<u64> {
+    fill_pass_with(limit, |remaining| {
+        fill_file(dir, pattern, remaining, verbose, progress)
+    })
+}
+
+fn fill_pass_with(
+    limit: Option<u64>,
+    mut fill_file: impl FnMut(Option<u64>) -> io::Result<Fill>,
+) -> io::Result<u64> {
     let mut total = 0u64;
+    // closing an earlier file here would let the allocator reuse its blocks instead of filling new ones.
+    let mut files = Vec::new();
     loop {
         let remaining = limit.map(|max| max - total);
         if remaining == Some(0) {
             break;
         }
-        let fill = fill_file(dir, pattern, remaining, verbose, progress)?;
+        let fill = match fill_file(remaining) {
+            Err(err) if total > 0 && is_out_of_space(&err) => break,
+            result => result?,
+        };
         total += fill.written;
+        files.push(fill.file);
         if !fill.file_too_large || fill.written == 0 {
             break;
         }
@@ -87,12 +102,13 @@ fn fill_pass(
 }
 
 struct Fill {
+    file: File,
     written: u64,
     file_too_large: bool,
 }
 
 /// writes `pattern` into a new temporary file until the volume is full, the file reaches the
-/// filesystem's size limit, or `limit` bytes are written. the file is gone when this returns.
+/// filesystem's size limit, or `limit` bytes are written. the caller keeps the file until the pass ends.
 fn fill_file(
     dir: &Path,
     pattern: Pattern,
@@ -143,6 +159,7 @@ fn fill_file(
     match file.sync_all() {
         Err(err) if !is_out_of_space(&err) => Err(err),
         _ => Ok(Fill {
+            file,
             written,
             file_too_large,
         }),
@@ -214,6 +231,78 @@ mod tests {
     use super::*;
 
     const MIB: u64 = 1024 * 1024;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn files_remain_open_until_pass_ends_or_fails() {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        for failure in [
+            io::ErrorKind::StorageFull,
+            io::ErrorKind::Other,
+            io::ErrorKind::Interrupted,
+        ] {
+            let mut originals = Vec::new();
+            let mut clones = Vec::new();
+            let mut calls = 0;
+            let result = fill_pass_with(None, |_| {
+                for (fd, dev, ino) in &originals {
+                    let meta = fs::metadata(format!("/proc/self/fd/{fd}")).unwrap();
+                    assert_eq!((meta.dev(), meta.ino()), (*dev, *ino));
+                }
+                calls += 1;
+                if calls == 3 {
+                    return Err(io::Error::from(failure));
+                }
+                let mut file = tempfile::tempfile_in(dir.path()).unwrap();
+                file.write_all(b"x").unwrap();
+                let meta = file.metadata().unwrap();
+                originals.push((file.as_raw_fd(), meta.dev(), meta.ino()));
+                clones.push(file.try_clone().unwrap());
+                Ok(Fill {
+                    file,
+                    written: 1,
+                    file_too_large: true,
+                })
+            });
+            if failure == io::ErrorKind::StorageFull {
+                assert_eq!(result.unwrap(), 2);
+            } else {
+                assert_eq!(result.unwrap_err().kind(), failure);
+            }
+            assert_eq!(calls, 3);
+            for (fd, dev, ino) in originals {
+                let same = fs::metadata(format!("/proc/self/fd/{fd}"))
+                    .is_ok_and(|meta| (meta.dev(), meta.ino()) == (dev, ino));
+                assert!(!same);
+            }
+            drop(clones);
+        }
+    }
+
+    #[test]
+    fn zero_progress_stops_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut calls = 0;
+        let written = fill_pass_with(None, |_| {
+            calls += 1;
+            Ok(Fill {
+                file: tempfile::tempfile_in(dir.path()).unwrap(),
+                written: 0,
+                file_too_large: true,
+            })
+        })
+        .unwrap();
+        assert_eq!((written, calls), (0, 1));
+    }
+
+    #[test]
+    fn first_allocation_storage_full_is_an_error() {
+        let error = fill_pass_with(None, |_| Err(io::ErrorKind::StorageFull.into())).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::StorageFull);
+    }
 
     fn options(passes: u32) -> Options {
         Options {

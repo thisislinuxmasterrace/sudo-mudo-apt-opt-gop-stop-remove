@@ -11,7 +11,8 @@ sudo-mudo-apt-opt-gop-stop-remove --wipe-free /home -n 3
 
 ## how it works
 
-each pass creates temporary files in `<dir>`, writes one pattern (zeros, ones, random; the last pass is random) into new blocks until the volume is full, then removes them. a filesystem with a file size limit, such as fat32, gets several files per pass.
+each pass creates temporary files in `<dir>`, writes one pattern (zeros, ones, random; the last pass is random) into new blocks until the volume is full, then removes them. on unix, a filesystem with a file size limit, such as fat32, gets several files per pass. on windows, file-size-limit errors currently stop the pass.
+the files stay open until the pass ends, keeping their blocks allocated while the next file is filled.
 
 - nothing in `<dir>` is changed. the temporary files are unlinked on unix and deleted on close on windows, so a killed process leaves nothing behind.
 - the dry run and the prompt show the space available to the current user. blocks reserved for root (ext4 reserves 5% by default) are not available to ordinary users and are wiped only when run as root. if nothing could be written, the run fails with a message (exit code 4).

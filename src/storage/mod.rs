@@ -17,7 +17,7 @@ pub(crate) use crypt::detect as assessment_encryption;
 use flash::is_flash;
 #[cfg(target_os = "linux")]
 pub(crate) use flash::medium as assessment_medium;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 pub(crate) use fs_name::filesystem_name as assessment_filesystem;
 use fs_name::{filesystem_name, remote_drive};
 pub use space::available_bytes;

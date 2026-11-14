@@ -69,7 +69,7 @@ a mismatch keeps the file under its name, prints `verify failed: contents differ
 
 ## other limits
 
-- **ntfs streams and compression**: only the default data stream is overwritten. alternate streams, such as the zone identifier windows adds to downloads, keep their clusters. compressed files may be rewritten to new clusters, so old data can survive (not tested on windows).
+- **ntfs streams and compression**: only the default data stream is overwritten. an open alternate-stream observer on windows 11 still read the original bytes after the ordinary file was erased. alternate streams, such as the zone identifier windows adds to downloads, are outside the overwrite coverage. compressed files may be rewritten to new clusters, so old data can survive (compression is not tested on windows).
 - **interrupted erase**: a file can be left half overwritten. see [usage](usage.md#interrupts).
 - **hard links**: other names lose their content too, and root refuses them by default. see [safety](safety.md#hard-links).
 - **directory with a read-only parent**: a directory whose parent cannot be modified is not removed. its contents are erased first and the error is reported.
@@ -89,7 +89,7 @@ on linux the tool can overwrite a whole hard disk or partition ([devices](device
 ## what is not verified
 
 - recursive walks depend on the process stack and open-file limits. a 1000-level tree passed on linux with an 8 mib stack; a 160-level tree aborted with a deliberately reduced 256 kib stack. unlimited nesting is not supported. an open-file-limit error is reported, but stack exhaustion can abort the process before normal cleanup.
-- windows runtime coverage includes ci and three lock scenarios on a windows 11 virtual machine using a gnu build of an earlier version: plain erase, refusal of a locked file, and holder shutdown. later ci ran four lock scenarios including a unicode path, `--verify`, json logging and restart manager shutdown; it also exercised junction and custom reparse-point cases. this is not real hardware evidence. antivirus, cloud providers, refs, compressed ntfs, alternate streams, reboot deletion, console interrupts, log identity and volume mount points remain unverified.
+- windows runtime coverage includes hosted ci lock, unicode, verification, logging, junction and custom reparse-point scenarios. isolated windows 11 checks also covered lock holders, access-denied refusal, an open alternate-stream observer, initial console cancellation and blocked-input cancellation during a holder question. a disposable sentinel scheduled through the reboot-deletion api disappeared after reboot; the complete interactive reboot-deletion flow remains unverified. these checks are not real hardware evidence. antivirus, cloud providers, refs, compressed ntfs, log identity and volume mount points remain unverified.
 - erasing devices on linux has not been tested on real disks, usb or partitions. ci runs unit tests of the device functions and the refusal tests; it never erases a real device. macos and windows devices are not implemented.
 - macos bind mounts (bindfs, nullfs) are found through `getmntinfo` but have not been tried on real hardware; the script `tests/manual/macos_bind_mount.sh` has not been run. fail-closed behaviour when `getmntinfo` fails is unchecked on hardware.
 - refs detection has not been tried on a real refs volume. `fuseblk` (ntfs-3g) is refused by `--wipe-free` by type and has not been tried on a real mount.

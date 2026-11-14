@@ -257,10 +257,13 @@ fn erase_locked_with(
     if opts.kill_holders && !holders.is_empty() {
         if !prompt::confirmed_action(
             || {
-                opts.force
-                    || prompt::ask(
+                if opts.force {
+                    Ok(true)
+                } else {
+                    prompt::ask_interruptible(
                         "close these processes to unlock the file? unsaved data in them is lost",
                     )
+                }
             },
             check_interrupted,
             || {
@@ -372,10 +375,13 @@ fn remove_entry(path: &Path, opts: &Options) -> io::Result<()> {
 
     if !prompt::confirmed_action(
         || {
-            !opts.force
-                && prompt::ask(
+            if opts.force {
+                Ok(false)
+            } else {
+                prompt::ask_interruptible(
                     "file is still in use and cannot be deleted now (contents are already erased). schedule deletion at next reboot?",
                 )
+            }
         },
         check_interrupted,
         || windows::delete_on_reboot(path),

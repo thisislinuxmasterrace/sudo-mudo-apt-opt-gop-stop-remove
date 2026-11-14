@@ -61,8 +61,7 @@ fn wipe_each_pass(
     Ok(total)
 }
 
-/// fills the free space with one pattern. on unix, a file that hits the filesystem's size limit (fat32)
-/// is followed by another file, until the volume is full or `limit` bytes are written.
+/// fills the free space with one pattern, using more files when a file reaches its size limit.
 /// returns the bytes written in this pass.
 fn fill_pass(
     dir: &Path,
@@ -71,8 +70,16 @@ fn fill_pass(
     verbose: bool,
     progress: &mut Progress,
 ) -> io::Result<u64> {
+    #[cfg(windows)]
+    // fat32 reports disk full when a write crosses its per-file limit, even with free space left.
+    let file_limit = match crate::storage::assessment_filesystem(dir).as_deref() {
+        Some("fat32") | None => Some(4 * GIB - CHUNK as u64),
+        _ => None,
+    };
+    #[cfg(not(windows))]
+    let file_limit = None;
     fill_pass_with(limit, |remaining| {
-        fill_file(dir, pattern, remaining, verbose, progress)
+        fill_file(dir, pattern, remaining, file_limit, verbose, progress)
     })
 }
 
@@ -113,6 +120,7 @@ fn fill_file(
     dir: &Path,
     pattern: Pattern,
     limit: Option<u64>,
+    file_limit: Option<u64>,
     verbose: bool,
     progress: &mut Progress,
 ) -> io::Result<Fill> {
@@ -125,16 +133,17 @@ fn fill_file(
 
     loop {
         erase::check_interrupted()?;
-        let want = match limit {
-            Some(max) => (max - written).min(CHUNK as u64) as usize,
-            None => CHUNK,
-        };
+        let remaining = limit
+            .unwrap_or(u64::MAX)
+            .min(file_limit.unwrap_or(u64::MAX))
+            - written;
+        let want = remaining.min(CHUNK as u64) as usize;
         if want == 0 {
+            file_too_large = file_limit == Some(written) && limit != Some(written);
             break;
         }
         erase::fill(&mut buf[..want], pattern);
-        match file.write(&buf[..want]) {
-            Ok(0) => break,
+        match write_chunk(&mut file, &buf[..want]) {
             Ok(n) => {
                 written += n as u64;
                 progress.add(n as u64);
@@ -163,6 +172,13 @@ fn fill_file(
             written,
             file_too_large,
         }),
+    }
+}
+
+fn write_chunk(file: &mut impl Write, buf: &[u8]) -> io::Result<usize> {
+    match file.write(buf) {
+        Ok(0) => Err(io::ErrorKind::WriteZero.into()),
+        result => result,
     }
 }
 
@@ -231,6 +247,23 @@ mod tests {
     use super::*;
 
     const MIB: u64 = 1024 * 1024;
+
+    #[test]
+    fn zero_write_is_an_error() {
+        struct ZeroWriter;
+        impl Write for ZeroWriter {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Ok(0)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        assert_eq!(
+            write_chunk(&mut ZeroWriter, b"x").unwrap_err().kind(),
+            io::ErrorKind::WriteZero
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -321,6 +354,7 @@ mod tests {
             dir.path(),
             Pattern::Zeros,
             Some(limit),
+            None,
             false,
             &mut Progress::new(None, true),
         )
@@ -328,6 +362,27 @@ mod tests {
 
         assert_eq!(fill.written, limit);
         assert!(!fill.file_too_large);
+    }
+
+    #[test]
+    fn bounded_files_roll_over_until_pass_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut progress = Progress::new(None, true);
+        let mut calls = 0;
+        let written = fill_pass_with(Some(3 * MIB), |remaining| {
+            calls += 1;
+            fill_file(
+                dir.path(),
+                Pattern::Zeros,
+                remaining,
+                Some(2 * MIB),
+                false,
+                &mut progress,
+            )
+        })
+        .unwrap();
+        assert_eq!((written, calls), (3 * MIB, 2));
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
     #[test]

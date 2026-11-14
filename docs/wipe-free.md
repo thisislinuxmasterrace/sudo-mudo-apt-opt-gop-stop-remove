@@ -11,7 +11,7 @@ sudo-mudo-apt-opt-gop-stop-remove --wipe-free /home -n 3
 
 ## how it works
 
-each pass creates temporary files in `<dir>`, writes one pattern (zeros, ones, random; the last pass is random) into new blocks until the volume is full, then removes them. on unix, a filesystem with a file size limit, such as fat32, gets several files per pass. on windows, file-size-limit errors currently stop the pass.
+each pass creates temporary files in `<dir>`, writes one pattern (zeros, ones, random; the last pass is random) into new blocks until the volume is full, then removes them. on unix, a filesystem with a file size limit, such as fat32, gets several files per pass. on windows fat32, each file stops one mib below 4 gib and the pass continues with another file: windows otherwise reports disk full at the per-file limit even when space remains. other windows file-size limits are not handled separately.
 the files stay open until the pass ends, keeping their blocks allocated while the next file is filled.
 each retained file uses an open handle. if the process reaches its open-file limit before the volume is full, the run fails and releases the temporary files; it does not report a completed wipe.
 

@@ -35,7 +35,6 @@ jobs:
           fi
           echo "tag $REF_NAME matches cargo version $cargo_version"
 
-      # fails the run, manual runs included, when CHANGELOG.md has no notes for this version.
       - name: check the release notes
         shell: bash
         env:
@@ -44,10 +43,11 @@ jobs:
         run: |
           if [ "$IS_TAG" = "true" ]; then
             tag="$REF_NAME"
+            .github/scripts/release-notes.sh "$tag" > release-notes.md
           else
             tag="v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "sudo-mudo-apt-opt-gop-stop-remove") | .version')"
+            .github/scripts/release-notes.sh --unreleased CHANGELOG.md "$tag" > release-notes.md
           fi
-          .github/scripts/release-notes.sh "$tag" > release-notes.md
           echo "notes for $tag:"
           cat release-notes.md
 
@@ -146,6 +146,16 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: cargo build --release --locked --target "$TARGET"
 
+      - name: smoke test
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          binary="target/${TARGET}/release/sudo-mudo-apt-opt-gop-stop-remove"
+          if [[ "$TARGET" == *-windows-* ]]; then binary="${binary}.exe"; fi
+          "$binary" --version
+          "$binary" --help
+
       - name: package (unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -187,9 +197,76 @@ jobs:
             ${{ env.ASSET }}.sha256
           if-no-files-found: error
 
+  packaging:
+    name: verify archives and render packaging
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: download archives
+        uses: actions/download-artifact@v8.0.2
+        with:
+          path: dist
+          pattern: '*-*'
+          merge-multiple: true
+
+      - name: verify checksums and render packaging
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          IS_TAG: ${{ github.event_name == 'push' }}
+        run: |
+          name=sudo-mudo-apt-opt-gop-stop-remove
+          ref="${REF_NAME//\//-}"
+          targets=(
+            aarch64-apple-darwin x86_64-apple-darwin
+            aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
+            aarch64-unknown-linux-musl x86_64-unknown-linux-musl
+            x86_64-pc-windows-msvc
+          )
+          tag="$REF_NAME"
+          if [ "$IS_TAG" != "true" ]; then
+            tag=v0.0.0-validation
+          fi
+          for target in "${targets[@]}"; do
+            ext=tar.gz
+            if [[ "$target" == *-windows-* ]]; then ext=zip; fi
+            checksum="${name}-${ref}-${target}.${ext}.sha256"
+            (cd dist && sha256sum --check "$checksum")
+            archive="dist/${checksum%.sha256}"
+            if [ "$ext" = zip ]; then
+              unzip -Z1 "$archive" > "$RUNNER_TEMP/archive-files"
+              binary="${name}.exe"
+            else
+              tar -tzf "$archive" > "$RUNNER_TEMP/archive-files"
+              binary="$name"
+            fi
+            prefix="${name}-${ref}-${target}"
+            for path in "$binary" LICENSE README.md "man/man1/${name}.1" \
+              "completions/${name}.bash" "completions/_${name}" "completions/${name}.fish"; do
+              grep -Fx "$prefix/$path" "$RUNNER_TEMP/archive-files"
+            done
+            grep -E "^${prefix}/completions/[^/]+[.]ps1$" "$RUNNER_TEMP/archive-files"
+            if [ "$IS_TAG" != "true" ]; then
+              cp "dist/$checksum" "dist/${name}-${tag}-${target}.${ext}.sha256"
+            fi
+          done
+          .github/scripts/render-packaging.sh "$tag" dist "$RUNNER_TEMP/packaging"
+
+      - name: upload packaging files
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ github.event_name == 'push' && 'packaging' || 'packaging-validation' }}
+          path: ${{ runner.temp }}/packaging/*
+          if-no-files-found: error
+
   release:
     name: github release
-    needs: build
+    needs: [build, packaging]
     # only a real tag push creates a release.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -220,17 +297,3 @@ jobs:
           gh release create "$REF_NAME" dist/* \
             --repo "$REPO" \
             --title "$REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md" "${flags[@]}"
-
-      # the homebrew formula and the scoop manifest with the real checksums. uploaded as a workflow
-      # artifact, not as release assets; they are pushed to the tap and bucket repos by hand.
-      - name: render packaging files
-        env:
-          REF_NAME: ${{ github.ref_name }}
-        run: .github/scripts/render-packaging.sh "$REF_NAME" dist "$RUNNER_TEMP/packaging"
-
-      - name: upload packaging files
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: packaging
-          path: ${{ runner.temp }}/packaging/*
-          if-no-files-found: error

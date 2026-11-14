@@ -18,7 +18,7 @@ replace `X.Y.Z` with the new version everywhere. for a prerelease use a semver p
 3. check the install section of `README.md`: it lists only channels that work after the release.
 4. run the checks: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked -- --skip device` in an isolated machine, the msrv check (`cargo +1.88.0 check --all-targets --locked`) and `cargo package --locked`.
 5. commit as `release: X.Y.Z`, push `main`, and wait until `ci` and `windows locks` are green.
-6. optional safety net: run the release workflow by hand on `main` (`gh workflow run release.yml --ref main`). it builds and packages every target and never creates a release. the tag and version check is skipped on a manual run, but the check for release notes still runs, so the changelog section of step 2 must exist first.
+6. optional safety net: run the release workflow by hand on `main` (`gh workflow run release.yml --ref main`). it builds all seven targets, checks their archive checksums and renders the packaging templates without creating a release. a manual run checks the `Unreleased` notes, falling back to the cargo version's finalized notes when that section is empty. inspect the target artifacts and the `packaging-validation` artifact: its `v0.0.0-validation` version and urls are fixtures, not published release links. each target artifact contains an archive and its checksum; the archive contains the binary, `LICENSE`, `README.md`, `man/man1/` and `completions/`.
 
 ## 2. github release
 

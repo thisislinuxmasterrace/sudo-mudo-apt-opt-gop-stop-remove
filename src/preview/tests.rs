@@ -5,6 +5,74 @@ fn count(paths: &[PathBuf], recursive: bool, excludes: &[String]) -> Summary {
 }
 
 #[test]
+fn empty_summary_lines() {
+    assert_eq!(
+        Summary::default().lines(),
+        ["files: 0, directories: 0, links: 0, size: 0 b"]
+    );
+}
+
+#[test]
+fn summary_lines_include_counters_and_incomplete_coverage() {
+    let summary = Summary {
+        files: 2,
+        dirs: 3,
+        links: 4,
+        bytes: 1536,
+        hard_linked: 5,
+        skipped: 6,
+        excluded: 7,
+        kept_dirs: 8,
+        refused: 9,
+        unreadable: 10,
+        other: 11,
+        assessments: vec![EntryAssessment {
+            path: PathBuf::from("entry"),
+            assessment: Assessment::unknown(),
+        }],
+        ..Summary::default()
+    };
+
+    assert_eq!(
+        summary.lines(),
+        [
+            "files: 2, directories: 3, links: 4, size: 1.5 kib",
+            "hard-linked files: 5 (the other names lose their content too)",
+            "skipped mount points or other filesystems: 6",
+            "excluded by --exclude: 7",
+            "directories kept because of --exclude: 8",
+            "refused: mount point given as target: 9",
+            "unreadable entries: 10",
+            "special files (fifo, sockets, devices), which are refused: 11",
+            "entry: weak: object could not be assessed; coverage is incomplete",
+            "assessment coverage: incomplete (skipped, excluded, refused, special or unreadable entries are not fully assessed for overwrite)",
+        ]
+    );
+}
+
+#[test]
+fn summary_lines_truncate_assessments_after_twenty() {
+    let summary = Summary {
+        assessments: (0..23)
+            .map(|index| EntryAssessment {
+                path: PathBuf::from(format!("entry-{index:02}")),
+                assessment: Assessment::unknown(),
+            })
+            .collect(),
+        coverage_limited: true,
+        ..Summary::default()
+    };
+    let mut expected = vec!["files: 0, directories: 0, links: 0, size: 0 b".to_owned()];
+    expected.extend((0..20).map(|index| {
+        format!("entry-{index:02}: weak: object could not be assessed; coverage is incomplete")
+    }));
+    expected.push("... and 3 more assessments (use --dry-run --json for all entries)".to_owned());
+    expected.push("assessment coverage: incomplete (skipped, excluded, refused, special or unreadable entries are not fully assessed for overwrite)".to_owned());
+
+    assert_eq!(summary.lines(), expected);
+}
+
+#[test]
 fn counts_files_links_and_bytes_in_a_tree() {
     let dir = tempfile::tempdir().unwrap();
     let tree = dir.path().join("tree");

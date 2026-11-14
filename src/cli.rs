@@ -6,9 +6,9 @@ use clap::{Command, CommandFactory, FromArgMatches, Parser};
 
 const EXAMPLES: &str = "\
 examples:
-  erase a file, after a question:        sudo mudo apt opt gop stop remove notes.txt
+  erase a file, after a question:        sudo mudo apt opt gop stop remove venom.exe
   look first, change nothing:            sudo mudo apt opt gop stop remove --dry-run -r build/
-  look first and get advice:             sudo mudo apt opt gop stop remove --explain notes.txt
+  look first and get advice:             sudo mudo apt opt gop stop remove --explain venom.exe
   a tree, keeping some entries:          sudo mudo apt opt gop stop remove -r --exclude .git build/
   paths from find, in a script:          find . -name '*.tmp' -print0 | sudo mudo apt opt gop stop remove -f -0 --files-from -
   with a record of what was erased:      sudo mudo apt opt gop stop remove -r --log erase.jsonl build/

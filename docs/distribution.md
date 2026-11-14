@@ -21,7 +21,7 @@ the `.sha256` files only detect a corrupted download, not a replaced release. th
 ## npm
 
 ```sh
-sudo npx --package=sudo-mudo-apt-opt-gop-stop-remove mudo apt opt gop stop remove --dry-run notes.txt
+sudo npx --package=sudo-mudo-apt-opt-gop-stop-remove mudo apt opt gop stop remove --dry-run venom.exe
 npm install -g sudo-mudo-apt-opt-gop-stop-remove
 sudo mudo apt opt gop stop remove --help
 ```

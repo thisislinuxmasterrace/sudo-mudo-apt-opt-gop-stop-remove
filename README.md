@@ -26,7 +26,7 @@ once the `mudo` binary is on sudo's path:
 sudo mudo apt opt gop stop remove --dry-run -r build/
 
 # erase a file, after confirmation
-sudo mudo apt opt gop stop remove notes.txt
+sudo mudo apt opt gop stop remove venom.exe
 
 # erase a tree, keeping .git
 sudo mudo apt opt gop stop remove -r --exclude .git old-project/

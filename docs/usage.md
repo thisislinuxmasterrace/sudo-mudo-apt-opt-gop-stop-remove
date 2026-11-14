@@ -22,9 +22,9 @@ the invocation check is a cooperative guard against mistakes, not an authenticat
 each file is renamed to a random hidden name, overwritten, then deleted. on unix its identity is checked after the rename and a file that cannot be removed is refused before overwrite. `-n` sets the passes (default 1): zeros, ones, random, repeating, with a random last pass. extra passes add wear without making flash, copy-on-write or compressed storage more reliable. symlinks are removed without following them; inaccessible and read-only entries are made accessible to their owner first.
 
 ```sh
-sudo mudo apt opt gop stop remove venom.exe             # one pass
-sudo mudo apt opt gop stop remove -n 3 disk-dump.img    # three passes
-sudo mudo apt opt gop stop remove --verify -f notes.txt # read the last pass back and compare
+sudo mudo apt opt gop stop remove venom.exe # one pass
+sudo mudo apt opt gop stop remove -n 3 venom.exe # three passes
+sudo mudo apt opt gop stop remove --verify -f venom.exe # read the last pass back and compare
 ```
 
 `--verify` is explained in [guarantees and limits](guarantees-and-limits.md#what---verify-proves).

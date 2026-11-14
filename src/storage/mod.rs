@@ -1,5 +1,6 @@
 //! advisory checks on the storage behind a path. warnings never block an erase.
 
+mod compression;
 mod crypt;
 mod flash;
 mod fs_name;
@@ -7,6 +8,9 @@ mod space;
 
 use std::path::{Path, PathBuf};
 
+pub(crate) use compression::Compression;
+#[cfg(target_os = "linux")]
+pub(crate) use compression::detect as assessment_compression;
 pub(crate) use crypt::Encryption;
 #[cfg(target_os = "linux")]
 pub(crate) use crypt::detect as assessment_encryption;

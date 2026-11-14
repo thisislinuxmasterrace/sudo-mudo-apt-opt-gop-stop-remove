@@ -13,5 +13,6 @@ all notable changes are listed here. the format follows [keep a changelog](https
 - a report of other copies found next to a target: a git work tree, a sync folder, a trash folder and editor backups.
 - `--explain`: a dry run that also prints advice for the paths, with commands that would help. the commands are only printed.
 - encryption facts on linux: dm-crypt and ecryptfs.
+- compression facts on linux, read from the mount options: `enabled`, `not_supported` or `unknown`.
 - sighup stops an erase like ctrl+c and sigterm.
 - release archives with a man page and shell completions, and packaging for npm, homebrew and scoop.

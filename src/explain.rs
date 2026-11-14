@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use crate::copies;
 use crate::preview::EntryAssessment;
-use crate::storage::{self, Encryption, Kind};
+use crate::storage::{self, Compression, Encryption, Kind};
 
 /// one block of advice for the visited entries, as lines ready to print. every condition is listed once,
 /// however many entries share it.
@@ -18,10 +18,12 @@ pub(crate) fn advice(entries: &[EntryAssessment]) -> Vec<String> {
     let mut link = false;
     let mut dm_crypt = false;
     let mut ecryptfs = false;
+    let mut compressed = false;
     let mut copy_kinds = BTreeSet::new();
     for entry in entries {
         let assessment = &entry.assessment;
         link |= assessment.verdict() == "cosmetic";
+        compressed |= assessment.compression() == Compression::Enabled;
         match assessment.encryption() {
             Encryption::DmCrypt => dm_crypt = true,
             Encryption::Ecryptfs => ecryptfs = true,
@@ -62,6 +64,9 @@ pub(crate) fn advice(entries: &[EntryAssessment]) -> Vec<String> {
     }
     if copy_on_write {
         lines.push("  - copy-on-write filesystem: a write goes to new blocks and the old ones may stay until they are reused. remove snapshots first (`btrfs subvolume list <mount>`, `zfs list -t snapshot`, `tmutil listlocalsnapshots /`), and consider erasing the whole device or destroying an encryption key.".to_owned());
+    }
+    if compressed {
+        lines.push("  - transparent compression is on for this mount: new data may be stored in smaller extents than the old data, so an overwrite need not reach the old blocks. random data does not compress, but that does not make the filesystem rewrite in place. treat it like a copy-on-write filesystem.".to_owned());
     }
     if network {
         lines.push("  - network filesystem: the server stores the data and may keep copies and snapshots. erase on the server, or ask its administrator.".to_owned());
@@ -105,6 +110,7 @@ mod tests {
             assessment: Assessment::from_facts(
                 Some(filesystem.to_owned()),
                 medium,
+                Compression::Unknown,
                 Encryption::NoneDetected,
                 false,
                 true,
@@ -114,12 +120,31 @@ mod tests {
     }
 
     #[test]
+    fn enabled_compression_gets_its_own_advice() {
+        let entries = [EntryAssessment {
+            path: PathBuf::from("x"),
+            assessment: Assessment::from_facts(
+                Some("btrfs".to_owned()),
+                "flash",
+                Compression::Enabled,
+                Encryption::NoneDetected,
+                false,
+                true,
+                Some(Vec::new()),
+            ),
+        }];
+        assert!(text(&entries).contains("transparent compression is on"));
+        assert!(!text(&[entry("ext4", "rotational")]).contains("transparent compression"));
+    }
+
+    #[test]
     fn encrypted_volumes_get_key_advice() {
         let entries = [EntryAssessment {
             path: PathBuf::from("x"),
             assessment: Assessment::from_facts(
                 Some("ext4".to_owned()),
                 "flash",
+                Compression::Unknown,
                 Encryption::DmCrypt,
                 false,
                 true,

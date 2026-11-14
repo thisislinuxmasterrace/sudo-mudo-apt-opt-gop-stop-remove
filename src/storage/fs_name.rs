@@ -165,7 +165,21 @@ fn mount_entry(path: &Path) -> Option<(String, String)> {
 /// the (fs type, source) of the longest mount point that contains `path`; `table` is mountinfo text.
 #[cfg(target_os = "linux")]
 fn mount_entry_in(table: &str, path: &Path) -> Option<(String, String)> {
-    let mut best: Option<(usize, String, String)> = None;
+    mount_line_in(table, path).map(|(fs_type, source, _)| (fs_type, source))
+}
+
+/// the comma separated super options (`rw,compress=zstd:3,...`) of the mount that holds `path`.
+#[cfg(target_os = "linux")]
+pub(super) fn mount_super_options(path: &Path) -> Option<String> {
+    let table = std::fs::read_to_string("/proc/self/mountinfo").ok()?;
+    let canonical = std::fs::canonicalize(path).ok()?;
+    mount_line_in(&table, &canonical).map(|(_, _, options)| options)
+}
+
+/// the (fs type, source, super options) of the longest mount point that contains `path`.
+#[cfg(target_os = "linux")]
+fn mount_line_in(table: &str, path: &Path) -> Option<(String, String, String)> {
+    let mut best: Option<(usize, String, String, String)> = None;
     for line in table.lines() {
         // fields before " - " end with the mount point; fields after it start with the fs type and source
         let Some((head, tail)) = line.split_once(" - ") else {
@@ -179,20 +193,22 @@ fn mount_entry_in(table: &str, path: &Path) -> Option<(String, String)> {
         let (Some(fs_type), Some(source)) = (fields.next(), fields.next()) else {
             continue;
         };
+        let options = fields.next().unwrap_or_default();
         // a later line on the same mount point is stacked on top of an earlier one, so it wins the tie
         if path.starts_with(&mount_point)
             && best
                 .as_ref()
-                .is_none_or(|(len, _, _)| mount_point.as_os_str().len() >= *len)
+                .is_none_or(|(len, _, _, _)| mount_point.as_os_str().len() >= *len)
         {
             best = Some((
                 mount_point.as_os_str().len(),
                 fs_type.to_owned(),
                 source.to_owned(),
+                options.to_owned(),
             ));
         }
     }
-    best.map(|(_, fs_type, source)| (fs_type, source))
+    best.map(|(_, fs_type, source, options)| (fs_type, source, options))
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
@@ -222,6 +238,23 @@ pub(super) fn volume_root(path: &Path) -> Option<Vec<u16>> {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mount_line_reports_the_super_options_and_survives_a_missing_field() {
+        let table = [
+            "36 25 0:32 / / rw,relatime shared:1 - btrfs /dev/vdb1 rw,compress=zstd:3,ssd",
+            "37 36 0:33 / /mnt rw - ext4 /dev/vdc1",
+        ]
+        .join("\n");
+        assert_eq!(
+            mount_line_in(&table, Path::new("/usr/bin")).map(|(_, _, options)| options),
+            Some("rw,compress=zstd:3,ssd".to_owned())
+        );
+        assert_eq!(
+            mount_line_in(&table, Path::new("/mnt/x")),
+            Some(("ext4".to_owned(), "/dev/vdc1".to_owned(), String::new()))
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

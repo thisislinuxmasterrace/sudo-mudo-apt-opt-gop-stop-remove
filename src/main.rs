@@ -5,6 +5,7 @@ mod cli;
 mod confirm;
 mod copies;
 mod device;
+mod entry;
 mod erase;
 mod explain;
 mod json;

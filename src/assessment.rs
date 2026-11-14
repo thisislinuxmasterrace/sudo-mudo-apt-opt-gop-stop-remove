@@ -24,7 +24,10 @@ pub(crate) struct Assessment {
 
 impl Assessment {
     pub(crate) fn for_path(path: &Path, meta: &Metadata) -> Self {
-        let facts = if meta.file_type().is_symlink() || (!meta.is_file() && !meta.is_dir()) {
+        let facts = if meta.file_type().is_symlink()
+            || crate::entry::is_unsupported_reparse(meta)
+            || (!meta.is_file() && !meta.is_dir())
+        {
             NO_FACTS
         } else {
             storage_facts(path, meta)
@@ -56,7 +59,7 @@ impl Assessment {
             };
         }
         // special objects are refused by the erase; do not open them for advisory facts.
-        if !meta.is_file() && !meta.is_dir() {
+        if crate::entry::is_unsupported_reparse(meta) || (!meta.is_file() && !meta.is_dir()) {
             return Self::from_facts(
                 None,
                 "unknown",

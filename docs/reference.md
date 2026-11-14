@@ -78,7 +78,7 @@ with `-f` there is no question, so code 3 cannot come from a declined question. 
 | `time` | utc, rfc 3339, whole seconds |
 | `path` | the path as handled. names that are not utf-8 are written with replacement characters |
 | `path_bytes` | only when the path is not utf-8, on unix: its raw bytes in lowercase hex (`61ff62` for `a`, `0xff`, `b`). windows paths stay lossy |
-| `kind` | `file`, `dir`, `link`, `other` (fifos, sockets, entries that could not be inspected); `device` or `partition` for a device run |
+| `kind` | `file`, `dir`, `link`, `other` (fifos, sockets, unsupported windows reparse points, entries that could not be inspected); `device` or `partition` for a device run |
 | `size` | bytes |
 | `passes` | the number of passes for files; 0 for everything else |
 | `result` | `ok`, `error`, `skipped`, `kept` or `refused` |

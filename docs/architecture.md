@@ -27,6 +27,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `src/safety.rs` | path validation (`validate_target`, `validate_wipe_dir`), protected locations |
 | `src/storage/` | filesystem checks: `mod.rs` (type lists, `classify`, warnings), `fs_name.rs` (filesystem name per os, linux magic table, mountinfo lookups, windows volume root), `flash.rs` (sysfs flash detection, and `block_dir`, the sysfs directory of a path's device), `crypt.rs` (dm-crypt and ecryptfs detection), `compression.rs` (compression from the mount options), `space.rs` (`available_bytes`) |
 | `src/erase/` | erase of files, directories and symlinks. see below |
+| `src/entry.rs` | classification of unsupported windows reparse points |
 | `src/verify.rs` | `--verify`: the read-back check, and the bytes of the last pass made from a seed |
 | `src/wipe.rs` | `--wipe-free`: fills free space with temporary files, pass by pass |
 | `src/device/` | whole block devices, linux only (`mod.rs` is the entry, `is_device_run`; elsewhere refused with code 1). `linux/`: `target` (names, overlaps), `facts` (refusals, layout), `summary`, `log_check`, `write` (`O_DIRECT`), `sysfs`, `mounts` |

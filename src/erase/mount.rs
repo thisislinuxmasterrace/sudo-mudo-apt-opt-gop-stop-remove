@@ -48,7 +48,7 @@ pub(crate) fn is_mount_boundary_in(
     mounts: &MountTable,
 ) -> io::Result<bool> {
     let meta = fs::symlink_metadata(entry)?;
-    if meta.file_type().is_symlink() {
+    if meta.file_type().is_symlink() || crate::entry::is_unsupported_reparse(&meta) {
         return Ok(false);
     }
     if device(&meta) != parent_dev {

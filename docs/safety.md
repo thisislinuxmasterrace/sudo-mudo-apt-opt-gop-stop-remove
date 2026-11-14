@@ -26,6 +26,8 @@ paths are normalized first (`.` components are dropped), so `link/` is the link,
 
 on unix, `-r` walks through open directory descriptors (`openat`, `fstatat`, `renameat`, `unlinkat`). a directory swapped for a symlink during the walk cannot redirect the erase. every entry, links and directories included, is renamed to a random hidden name and checked against its earlier device, inode and type. a substitution detected by that check is reported and its name is restored when possible. the check and the later unlink are separate operations: another process with write access to the parent can still replace the hidden name between them.
 
+on windows, reparse points that are not recognized as symbolic links or junctions are refused without changing their attributes or traversing them. the path-based walk cannot prevent substitutions by another process between checks and operations.
+
 ## protected locations
 
 refused for erase and for `--wipe-free`:

@@ -76,6 +76,12 @@ fn erase_kind(
             .or_else(|file_err| fs::remove_dir(path).map_err(|_| file_err))
             .map(|()| false);
     }
+    if crate::entry::is_unsupported_reparse(meta) {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "unsupported reparse point, refusing to erase it",
+        ));
+    }
     if file_type.is_dir() {
         return erase_dir(path, walk, opts);
     }
@@ -94,6 +100,8 @@ fn meta_kind(meta: &fs::Metadata) -> (Kind, u64) {
     let file_type = meta.file_type();
     if file_type.is_symlink() {
         (Kind::Link, 0)
+    } else if crate::entry::is_unsupported_reparse(meta) {
+        (Kind::Other, 0)
     } else if file_type.is_dir() {
         (Kind::Dir, 0)
     } else if file_type.is_file() {
@@ -378,7 +386,12 @@ fn make_writable(path: &Path, is_dir: bool) -> io::Result<()> {
             "refusing to change permissions of a symbolic link",
         ));
     }
-    // note: cloud and dedup reparse points lose the readonly flag here, before open_for_erase refuses them.
+    if crate::entry::is_unsupported_reparse(&meta) {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "unsupported reparse point, refusing to change permissions",
+        ));
+    }
     let mut perms = meta.permissions();
     if !perms.readonly() {
         return Ok(());

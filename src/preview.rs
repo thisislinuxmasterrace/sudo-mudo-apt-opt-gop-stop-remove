@@ -152,6 +152,8 @@ fn add(walk: &mut Walk<'_>, summary: &mut Summary, path: &Path, rel: &Path) {
     let file_type = meta.file_type();
     if file_type.is_symlink() {
         summary.links += 1;
+    } else if crate::entry::is_unsupported_reparse(&meta) {
+        summary.other += 1;
     } else if file_type.is_dir() {
         summary.dirs += 1;
         if walk.recursive && add_children(walk, summary, path, &meta, rel) {
@@ -280,7 +282,7 @@ impl Summary {
         }
         if self.other > 0 {
             lines.push(format!(
-                "special files (fifo, sockets, devices), which are refused: {}",
+                "special entries (fifo, sockets, devices, unsupported reparse points), which are refused: {}",
                 self.other
             ));
         }

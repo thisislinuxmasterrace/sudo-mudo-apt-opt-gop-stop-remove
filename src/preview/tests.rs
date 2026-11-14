@@ -43,7 +43,7 @@ fn summary_lines_include_counters_and_incomplete_coverage() {
             "directories kept because of --exclude: 8",
             "refused: mount point given as target: 9",
             "unreadable entries: 10",
-            "special files (fifo, sockets, devices), which are refused: 11",
+            "special entries (fifo, sockets, devices, unsupported reparse points), which are refused: 11",
             "entry: weak: object could not be assessed; coverage is incomplete",
             "assessment coverage: incomplete (skipped, excluded, refused, special or unreadable entries are not fully assessed for overwrite)",
         ]

@@ -1,6 +1,6 @@
 # distribution
 
-the ways to get `sudo-mudo-apt-opt-gop-stop-remove` once a release is published. no release exists yet, so none of the channels below has a published version. how a release is made is in [releasing](../RELEASING.md).
+installing `sudo mudo apt opt gop stop remove`. no release exists yet, so none of the channels below has a published version. how a release is made is in [releasing](../RELEASING.md).
 
 ## cargo
 

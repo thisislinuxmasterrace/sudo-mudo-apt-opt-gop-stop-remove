@@ -1,6 +1,6 @@
 # guarantees and limits
 
-mudo writes through the filesystem. it cannot reach every place that may hold old data, and it never certifies that a file is unrecoverable.
+`sudo mudo apt opt gop stop remove` writes through the filesystem. it cannot reach every place that may hold old data, and it never certifies that a file is unrecoverable.
 
 ## by kind of storage
 

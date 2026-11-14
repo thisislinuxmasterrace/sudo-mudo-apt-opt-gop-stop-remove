@@ -1,8 +1,8 @@
-# sudo-mudo-apt-opt-gop-stop-remove
+# sudo mudo apt opt gop stop remove
 
 when you really want to nuke the shit out of some files
 
-`mudo` hides file names, overwrites the contents, then deletes the files. it handles directory trees and free space too. linux block-device erasure is experimental.
+`sudo mudo apt opt gop stop remove` hides file names, overwrites the contents, then deletes the files. it handles directory trees and free space too. linux block-device erasure is experimental.
 
 **overwriting is best effort.** ssds, snapshots, copy-on-write filesystems and backups can keep old data. `--verify` checks the new contents, not whether every old copy is gone. [limits](docs/guarantees-and-limits.md).
 
@@ -15,11 +15,11 @@ cargo build --release
 sudo ./target/release/mudo apt opt gop stop remove --help
 ```
 
-the package name stays long; the executable is only `mudo`.
+the package is `sudo-mudo-apt-opt-gop-stop-remove`; the binary is `mudo`.
 
 ## use
 
-once `mudo` is on sudo's path:
+once the `mudo` binary is on sudo's path:
 
 ```sh
 # inspect first

@@ -42,6 +42,7 @@ run by hand or by a ci job, outside `cargo test`:
 
 | script | what it checks | how it runs |
 | --- | --- | --- |
+| `npm/tests.mjs` | offline release archive, package and launcher checks (needs node, python 3, tar and unzip) | `node --test npm/tests.mjs` |
 | `tests/windows/locks.ps1` | locked-file scenarios on windows (needs pwsh 7+; touches only a fresh temp directory) | the `windows locks` workflow, or `pwsh -File tests/windows/locks.ps1 -Binary <path>` |
 | `tests/network/network_fs.sh <binary> <mount dir> <nfs\|cifs>` | a file on a network mount gets the warning and is still erased; `--wipe-free` there is refused | the manual `network filesystems` workflow (linux, root) |
 | `tests/manual/macos_bind_mount.sh [binary]` | a `-r` walk on macos does not enter a bind mount (`mount_nullfs`) or touch its source | by hand, macos only, needs `sudo` |

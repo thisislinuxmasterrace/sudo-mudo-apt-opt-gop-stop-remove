@@ -53,6 +53,9 @@ jobs:
           node --check npm/build.mjs
           node --check npm/launcher.js
 
+      - name: test npm packaging
+        run: node --test npm/tests.mjs
+
       - name: render the packaging files
         shell: bash
         run: |

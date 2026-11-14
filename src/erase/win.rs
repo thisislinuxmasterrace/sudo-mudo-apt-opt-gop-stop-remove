@@ -1,6 +1,6 @@
 //! windows erase: walks by path (no descriptor-relative lookups, so a swap during the walk is not
 //! guarded against), handles files held by another process, and deletes with posix semantics.
-//! exercised only on ci runners, not on real windows hardware.
+//! exercised on windows ci and a windows vm, not on real windows hardware.
 
 use std::fs::{self, File};
 use std::io;
@@ -255,18 +255,24 @@ fn erase_locked_with(
     }
 
     if opts.kill_holders && !holders.is_empty() {
-        if !opts.force
-            && !prompt::ask(
-                "close these processes to unlock the file? unsaved data in them is lost",
-            )
-        {
+        if !prompt::confirmed_action(
+            || {
+                opts.force
+                    || prompt::ask(
+                        "close these processes to unlock the file? unsaved data in them is lost",
+                    )
+            },
+            check_interrupted,
+            || {
+                eprintln!(
+                    "warning: closing {} process(es) may lose unsaved data and stop services",
+                    holders.len()
+                );
+                close_holders(path).map(|_| ())
+            },
+        )? {
             return Err(io::Error::other("skipped, file is still locked"));
         }
-        eprintln!(
-            "warning: closing {} process(es) may lose unsaved data and stop services",
-            holders.len()
-        );
-        close_holders(path)?;
 
         match open_for_overwrite(path) {
             Ok(mut file) => {
@@ -364,16 +370,21 @@ fn remove_entry(path: &Path, opts: &Options) -> io::Result<()> {
         Err(err) => err,
     };
 
-    if opts.force
-        || !prompt::ask(
-            "file is still in use and cannot be deleted now (contents are already erased). schedule deletion at next reboot?",
-        )
-    {
+    if !prompt::confirmed_action(
+        || {
+            !opts.force
+                && prompt::ask(
+                    "file is still in use and cannot be deleted now (contents are already erased). schedule deletion at next reboot?",
+                )
+        },
+        check_interrupted,
+        || windows::delete_on_reboot(path),
+    )? {
         return Err(io::Error::other(format!(
             "contents are erased, the file remains ({delete_err}) and is not scheduled for deletion at reboot"
         )));
     }
-    windows::delete_on_reboot(path)
+    Ok(())
 }
 
 /// clears the read-only flag so the entry can be overwritten and renamed.

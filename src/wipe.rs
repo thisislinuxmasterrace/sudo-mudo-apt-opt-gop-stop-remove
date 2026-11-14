@@ -239,11 +239,7 @@ mod tests {
         use std::os::unix::fs::MetadataExt;
 
         let dir = tempfile::tempdir().unwrap();
-        for failure in [
-            io::ErrorKind::StorageFull,
-            io::ErrorKind::Other,
-            io::ErrorKind::Interrupted,
-        ] {
+        for failure in [libc::ENOSPC, libc::EIO, libc::EINTR, libc::EMFILE] {
             let mut originals = Vec::new();
             let mut clones = Vec::new();
             let mut calls = 0;
@@ -254,7 +250,7 @@ mod tests {
                 }
                 calls += 1;
                 if calls == 3 {
-                    return Err(io::Error::from(failure));
+                    return Err(io::Error::from_raw_os_error(failure));
                 }
                 let mut file = tempfile::tempfile_in(dir.path()).unwrap();
                 file.write_all(b"x").unwrap();
@@ -267,10 +263,10 @@ mod tests {
                     file_too_large: true,
                 })
             });
-            if failure == io::ErrorKind::StorageFull {
+            if failure == libc::ENOSPC {
                 assert_eq!(result.unwrap(), 2);
             } else {
-                assert_eq!(result.unwrap_err().kind(), failure);
+                assert_eq!(result.unwrap_err().raw_os_error(), Some(failure));
             }
             assert_eq!(calls, 3);
             for (fd, dev, ino) in originals {

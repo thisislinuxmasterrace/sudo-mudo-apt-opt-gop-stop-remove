@@ -124,6 +124,7 @@ a file held open by another program is not erased by default.
 
 - `--kill-holders` closes the programs that hold the file. it asks first unless `-f` is given. the tool asks the windows restart manager to shut the holders down and forces it when they do not close (`RmForceShutdown`), so services among them are stopped too. if the question is declined, the file is not erased and the run ends with exit code 4.
 - after holders close, the overwrite uses the size of the file opened on retry.
+- an interrupt observed after either windows question stops the operation before closing holders or scheduling reboot deletion. this check does not unblock a waiting input read.
 - if the file still cannot be deleted after its contents are erased, the tool asks whether to delete it at the next reboot. with `-f` nothing is scheduled and the file stays; a declined question leaves it in place too. both end with exit code 4.
 
-`--kill-holders` outside windows is an argument error (exit code 2). this code has not been tested on real windows hardware; ci runs the scenarios in `tests/windows/locks.ps1` on a windows runner.
+`--kill-holders` outside windows is an argument error (exit code 2). the lock scenarios have run on a windows ci runner and, in an earlier version, in a windows 11 virtual machine. they have not been tested on real windows hardware; see [verification limits](guarantees-and-limits.md#what-is-not-verified).

@@ -1,0 +1,14 @@
+{
+  "name": "sudo-mudo-apt-opt-gop-stop-remove",
+  "version": "0.0.0-template",
+  "description": "when you really want to delete something: best-effort file erasure with honest limits",
+  "keywords": ["erase", "shred", "secure-delete", "overwrite", "wipe", "cli"],
+  "license": "MIT",
+  "author": "archhaze24",
+  "repository": { "type": "git", "url": "git+https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove.git" },
+  "homepage": "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove#readme",
+  "bin": { "sudo-mudo-apt-opt-gop-stop-remove": "bin/sudo-mudo-apt-opt-gop-stop-remove.js" },
+  "files": ["bin", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "optionalDependencies": {}
+}

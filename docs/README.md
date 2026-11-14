@@ -26,4 +26,5 @@ contents: [start here](#start-here) · [pages](#pages)
 | [devices.md](devices.md) | erasing a whole block device on linux: targets, refusals, confirmation |
 | [reference.md](reference.md) | flags, exit codes, `--log` and `--dry-run --json` formats, `--files-from`, `--exclude`, man page and completions |
 | [architecture.md](architecture.md) | code map, data flow, invariants, where each concern lives |
+| [distribution.md](distribution.md) | the install channels once a release exists: cargo, release archives, npm, homebrew, scoop |
 | [development.md](development.md) | toolchain, checks, tests, manual scripts, ci, msrv, conventions |

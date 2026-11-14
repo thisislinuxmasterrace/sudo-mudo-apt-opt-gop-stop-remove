@@ -1,0 +1,43 @@
+# rendered by .github/scripts/render-packaging.sh from packaging/homebrew/sudo-mudo-apt-opt-gop-stop-remove.rb.in.
+# lives in the tap repo archhaze24/homebrew-tap as Formula/sudo-mudo-apt-opt-gop-stop-remove.rb.
+# linux uses the static musl builds, so no particular glibc is required.
+class SudoMudoAptOptGopStopRemove < Formula
+  desc "when you really want to delete something: best-effort file erasure with honest limits"
+  homepage "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases/download/@TAG@/sudo-mudo-apt-opt-gop-stop-remove-@TAG@-aarch64-apple-darwin.tar.gz"
+      sha256 "@SHA_aarch64_apple_darwin@"
+    end
+    on_intel do
+      url "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases/download/@TAG@/sudo-mudo-apt-opt-gop-stop-remove-@TAG@-x86_64-apple-darwin.tar.gz"
+      sha256 "@SHA_x86_64_apple_darwin@"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases/download/@TAG@/sudo-mudo-apt-opt-gop-stop-remove-@TAG@-aarch64-unknown-linux-musl.tar.gz"
+      sha256 "@SHA_aarch64_unknown_linux_musl@"
+    end
+    on_intel do
+      url "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases/download/@TAG@/sudo-mudo-apt-opt-gop-stop-remove-@TAG@-x86_64-unknown-linux-musl.tar.gz"
+      sha256 "@SHA_x86_64_unknown_linux_musl@"
+    end
+  end
+
+  def install
+    bin.install "sudo-mudo-apt-opt-gop-stop-remove"
+    man1.install Dir["man/man1/*.1"]
+    bash_completion.install "completions/sudo-mudo-apt-opt-gop-stop-remove.bash" => "sudo-mudo-apt-opt-gop-stop-remove"
+    zsh_completion.install "completions/_sudo-mudo-apt-opt-gop-stop-remove"
+    fish_completion.install "completions/sudo-mudo-apt-opt-gop-stop-remove.fish"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/sudo-mudo-apt-opt-gop-stop-remove --version")
+  end
+end

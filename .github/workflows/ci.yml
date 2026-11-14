@@ -37,6 +37,33 @@ jobs:
       - name: test
         run: cargo test --all-targets --locked
 
+  # the release scripts only run on a tag, so a broken one would show up too late. these checks
+  # run the same scripts on fake checksums and publish nothing.
+  packaging:
+    name: packaging scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: shellcheck
+        run: shellcheck .github/scripts/*.sh
+
+      - name: check the node scripts
+        run: |
+          node --check npm/build.mjs
+          node --check npm/launcher.js
+
+      - name: render the packaging files
+        shell: bash
+        run: |
+          name=sudo-mudo-apt-opt-gop-stop-remove
+          mkdir "$RUNNER_TEMP/assets"
+          for entry in aarch64-apple-darwin:tar.gz x86_64-apple-darwin:tar.gz aarch64-unknown-linux-musl:tar.gz x86_64-unknown-linux-musl:tar.gz x86_64-pc-windows-msvc:zip; do
+            printf '%064d  archive\n' 0 > "$RUNNER_TEMP/assets/$name-v0.0.0-${entry%%:*}.${entry#*:}.sha256"
+          done
+          .github/scripts/render-packaging.sh v0.0.0 "$RUNNER_TEMP/assets" "$RUNNER_TEMP/rendered"
+          python3 -m json.tool "$RUNNER_TEMP/rendered/$name.json" > /dev/null
+
   msrv:
     name: msrv (rust 1.88)
     runs-on: ubuntu-latest

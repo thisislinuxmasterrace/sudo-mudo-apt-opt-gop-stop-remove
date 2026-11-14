@@ -6,6 +6,10 @@ rust-version = "1.88"
 description = "when you really want to delete something"
 readme = "README.md"
 license = "MIT"
+repository = "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove"
+keywords = ["shred", "secure-delete", "erase", "wipe", "overwrite"]
+categories = ["command-line-utilities", "filesystem"]
+exclude = [".github/", "npm/", "packaging/", "RELEASING.md"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

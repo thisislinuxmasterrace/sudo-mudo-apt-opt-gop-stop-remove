@@ -1,4 +1,6 @@
 /target
+/npm/dist
+/packaging-out
 PLAN.md
 AGENTS.md
 .DS_Store

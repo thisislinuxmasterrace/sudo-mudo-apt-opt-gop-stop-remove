@@ -14,9 +14,9 @@ status: version 0.1.0, early development. the windows code has only been exercis
 
 ## install
 
-download a binary from the [releases page](https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases): linux x86_64, macos arm64 and x86_64, windows x86_64. `SHA256SUMS` is published next to the binaries, so it only detects a corrupted download, not a replaced one.
+there is no release yet. release archives, npm, homebrew and scoop are prepared and described in [distribution](docs/distribution.md), but nothing is published.
 
-or build from source (rust 1.88 or newer):
+build from source (rust 1.88 or newer):
 
 ```sh
 cargo build --release   # target/release/sudo-mudo-apt-opt-gop-stop-remove

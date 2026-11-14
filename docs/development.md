@@ -53,7 +53,7 @@ run by hand or by a ci job, outside `cargo test`:
 | `ci.yml` | push and pull request to main | fmt (ubuntu only), clippy and tests on ubuntu, macos and windows; a `msrv` job on 1.88 |
 | `windows-locks.yml` | push, pull request, manual | builds release and runs `tests/windows/locks.ps1` on windows-latest |
 | `network-fs.yml` | manual | mounts nfs and samba on localhost and runs `tests/network/network_fs.sh` |
-| `release.yml` | `v*` tags, manual | clippy and tests, then binaries for linux x86_64, macos arm64, macos x86_64 and windows x86_64. a tag push also publishes a github release with `SHA256SUMS`; a manual run builds but does not release |
+| `release.yml` | `v*` tags, manual | checks the tag against `Cargo.toml` and `CHANGELOG.md`, runs clippy and tests, generates the man page and completions, and builds archives for seven targets with a `.sha256` each. a tag push also creates a github release; a manual run builds but does not release. see [releasing](../RELEASING.md) |
 
 dependabot opens weekly update prs for cargo and github actions. rand 0.x major and minor updates are ignored (each minor of a 0.x crate is breaking; the code targets 0.10), and `dtolnay/rust-toolchain` is ignored because the msrv pin is changed by hand. actions are pinned to versions; check node versions before bumping.
 

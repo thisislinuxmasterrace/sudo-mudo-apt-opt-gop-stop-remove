@@ -1,0 +1,26 @@
+{
+    "version": "@VERSION@",
+    "description": "when you really want to delete something: best-effort file erasure with honest limits",
+    "homepage": "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases/download/@TAG@/sudo-mudo-apt-opt-gop-stop-remove-@TAG@-x86_64-pc-windows-msvc.zip",
+            "hash": "@SHA_x86_64_pc_windows_msvc@",
+            "extract_dir": "sudo-mudo-apt-opt-gop-stop-remove-@TAG@-x86_64-pc-windows-msvc"
+        }
+    },
+    "bin": "sudo-mudo-apt-opt-gop-stop-remove.exe",
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases/download/v$version/sudo-mudo-apt-opt-gop-stop-remove-v$version-x86_64-pc-windows-msvc.zip",
+                "hash": {
+                    "url": "$url.sha256"
+                },
+                "extract_dir": "sudo-mudo-apt-opt-gop-stop-remove-v$version-x86_64-pc-windows-msvc"
+            }
+        }
+    }
+}

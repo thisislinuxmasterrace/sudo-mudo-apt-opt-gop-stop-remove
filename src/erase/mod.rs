@@ -10,6 +10,8 @@ mod mount;
 mod overwrite;
 mod pattern;
 mod report;
+#[cfg(unix)]
+mod sparse;
 #[cfg(all(test, unix))]
 mod swap_tests;
 #[cfg(test)]

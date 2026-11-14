@@ -25,6 +25,8 @@ on these filesystems the tool prints a warning per path and carries on. warnings
 
 each overwrite pass is synced with `fsync` before the next one starts. that pushes data to the filesystem's storage, not to the physical blocks the drive may have remapped.
 
+on linux, regular files use the kernel's reported data ranges and skip holes, preserving their logical length without allocating those holes. if range seeking is unsupported, the whole file is overwritten. holes do not expose old disk blocks, so skipping them does not reach previously freed blocks. the summary's byte count remains a logical upper estimate.
+
 for flash, copy-on-write and shared storage, use full-disk encryption (filevault, bitlocker, luks) enabled before the data was written, or the drive's own secure erase, and treat an overwrite as a courtesy.
 
 ## assessments
@@ -50,6 +52,8 @@ linux binds storage observations to an open descriptor with checked identity. ma
 ## what `--verify` proves
 
 `--verify` reads each file back after its last overwrite pass and compares it with what that pass wrote. the last pass writes pseudo-random bytes made from a 32-byte seed taken from the system generator for each file. the seed lives in memory for one erase and is never written to disk. the generator is not cryptographic: erasing only needs bytes that differ from the old contents.
+
+for sparse files, verification reads the entire logical length, checks the written ranges and expects zeros in holes. its read cost therefore follows the logical size even when much less was overwritten.
 
 what a match proves: the filesystem returned the new bytes for that file at that moment.
 

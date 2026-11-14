@@ -3,6 +3,7 @@
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
+use std::ops::Range;
 
 use rand::Rng;
 
@@ -72,8 +73,20 @@ fn mix(mut z: u64) -> u64 {
 
 /// compares the first `len` bytes of `file` with `expected`. it runs right after the last pass, through the
 /// same handle. the caller keeps the file under its name when this fails, and reports the error.
+#[cfg(any(test, windows))]
 pub fn check(file: &mut File, expected: &Expected, len: u64) -> io::Result<()> {
-    match first_difference(file, expected, len) {
+    check_ranges(file, expected, len, std::slice::from_ref(&(0..len)))
+}
+
+/// checks seeded data ranges and zero-filled holes across the entire logical length.
+/// ranges come from the checked descriptor, ordered, disjoint and within `len`.
+pub(crate) fn check_ranges(
+    file: &mut File,
+    expected: &Expected,
+    len: u64,
+    ranges: &[Range<u64>],
+) -> io::Result<()> {
+    match first_difference_ranges(file, expected, len, ranges) {
         Ok(None) => Ok(()),
         Ok(Some(_)) => Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -89,17 +102,45 @@ pub fn check(file: &mut File, expected: &Expected, len: u64) -> io::Result<()> {
 
 /// offset of the first byte that differs from `expected`, or `None` when the file matches. a file that is
 /// shorter or longer than `len` differs at its first missing or extra byte.
+#[cfg(test)]
 fn first_difference(file: &mut File, expected: &Expected, len: u64) -> io::Result<Option<u64>> {
+    first_difference_ranges(file, expected, len, std::slice::from_ref(&(0..len)))
+}
+
+fn first_difference_ranges(
+    file: &mut File,
+    expected: &Expected,
+    len: u64,
+    ranges: &[Range<u64>],
+) -> io::Result<Option<u64>> {
     drop_cache(file);
     file.seek(SeekFrom::Start(0))?;
     let mut actual = vec![0u8; BUFFER_SIZE];
     let mut want = vec![0u8; BUFFER_SIZE];
     let mut offset = 0u64;
+    let mut range_index = 0;
     while offset < len {
         check_interrupted()?;
         let chunk = (len - offset).min(BUFFER_SIZE as u64) as usize;
         let read = read_up_to(file, &mut actual[..chunk])?;
-        expected.fill_at(offset, &mut want[..chunk]);
+        want[..chunk].fill(0);
+        let end = offset + chunk as u64;
+        while range_index < ranges.len() && ranges[range_index].end <= offset {
+            range_index += 1;
+        }
+        for range in &ranges[range_index..] {
+            if range.start >= end {
+                break;
+            }
+            let start = range.start.max(offset);
+            let stop = range.end.min(end);
+            if start < stop {
+                expected.fill_at(
+                    start,
+                    &mut want[(start - offset) as usize..(stop - offset) as usize],
+                );
+            }
+        }
         if let Some(at) = actual[..read]
             .iter()
             .zip(&want[..read])
@@ -224,6 +265,45 @@ mod tests {
             err.to_string(),
             "verify failed: contents differ after the last pass"
         );
+    }
+
+    #[test]
+    fn sparse_data_and_holes_cross_read_buffer_boundaries() {
+        let stream = expected(5);
+        let len = (3 * BUFFER_SIZE + 19) as u64;
+        let ranges = [
+            13..BUFFER_SIZE as u64 - 3,
+            BUFFER_SIZE as u64 + 5..2 * BUFFER_SIZE as u64 + 7,
+        ];
+        let mut contents = vec![0; len as usize];
+        for range in &ranges {
+            stream.fill_at(
+                range.start,
+                &mut contents[range.start as usize..range.end as usize],
+            );
+        }
+        let mut file = tempfile::tempfile().unwrap();
+        use std::io::Write;
+        file.write_all(&contents).unwrap();
+        check_ranges(&mut file, &stream, len, &ranges).unwrap();
+        for offset in [
+            0,
+            13,
+            BUFFER_SIZE - 1,
+            BUFFER_SIZE + 4,
+            2 * BUFFER_SIZE,
+            len as usize - 1,
+        ] {
+            file.seek(SeekFrom::Start(offset as u64)).unwrap();
+            file.write_all(&[contents[offset] ^ 0xff]).unwrap();
+            assert_eq!(
+                first_difference_ranges(&mut file, &stream, len, &ranges).unwrap(),
+                Some(offset as u64)
+            );
+            file.seek(SeekFrom::Start(offset as u64)).unwrap();
+            file.write_all(&[contents[offset]]).unwrap();
+        }
+        check_ranges(&mut file, &stream, len, &ranges).unwrap();
     }
 
     #[test]

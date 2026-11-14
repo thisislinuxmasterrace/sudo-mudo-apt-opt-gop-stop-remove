@@ -421,22 +421,17 @@ fn overwrite_hidden(parent: &File, hidden: &CStr, st: &FileStat, opts: &Options)
         st,
     )?;
     // length from the open handle, not from a second lookup.
-    let whole = 0..file.metadata()?.len();
+    let len = file.metadata()?.len();
+    let ranges = super::sparse::data_ranges(&file, len)?;
     let expected = opts.verify.then(Expected::new);
-    overwrite(
-        &mut file,
-        std::slice::from_ref(&whole),
-        opts,
-        expected.as_ref(),
-    )
-    .map_err(|err| {
+    overwrite(&mut file, &ranges, opts, expected.as_ref()).map_err(|err| {
         io::Error::new(
             err.kind(),
             format!("{err}; the contents may be partly overwritten"),
         )
     })?;
     match &expected {
-        Some(expected) => verify::check(&mut file, expected, whole.end),
+        Some(expected) => verify::check_ranges(&mut file, expected, len, &ranges),
         None => Ok(()),
     }
 }

@@ -7,7 +7,8 @@ mod common;
 #[cfg(unix)]
 mod interrupt {
     use std::fs::{self, File};
-    use std::io::{BufRead, BufReader, Read};
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::path::Path;
     use std::process::{Command, Stdio};
 
     use nix::sys::signal::{Signal, kill};
@@ -20,6 +21,16 @@ mod interrupt {
     // than delivering a signal. the interrupt is checked before each object and in every 1 MiB write chunk.
     const BIG_FILE: u64 = 128 * 1024 * 1024;
 
+    fn create_big_file(path: &Path) {
+        let mut file = File::create(path).unwrap();
+        // an all-hole file can finish without writes, before the signal reaches the process.
+        let data = vec![0x55; 1024 * 1024];
+        for _ in 0..BIG_FILE / data.len() as u64 {
+            file.write_all(&data).unwrap();
+        }
+        file.sync_all().unwrap();
+    }
+
     struct Run {
         code: Option<i32>,
         stderr: String,
@@ -31,7 +42,7 @@ mod interrupt {
     fn erase_and_interrupt(signals: &[Signal]) -> Run {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("big.bin");
-        File::create(&file).unwrap().set_len(BIG_FILE).unwrap();
+        create_big_file(&file);
 
         let mut child = Command::new(BIN)
             .args(["-f", "-v", "-n", "3", path_str(&file)])
@@ -126,10 +137,7 @@ mod interrupt {
         let dir = tempfile::tempdir().unwrap();
         let tree = dir.path().join("tree");
         fs::create_dir_all(tree.join("sub")).unwrap();
-        File::create(tree.join("sub/big.bin"))
-            .unwrap()
-            .set_len(BIG_FILE)
-            .unwrap();
+        create_big_file(&tree.join("sub/big.bin"));
 
         let mut child = Command::new(BIN)
             .args(["-f", "-r", "-v", "-n", "3", path_str(&tree)])

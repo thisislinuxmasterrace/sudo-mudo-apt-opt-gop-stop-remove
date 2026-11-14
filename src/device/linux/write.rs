@@ -100,15 +100,17 @@ pub(super) fn buffer_for(logical: u64) -> io::Result<AlignedBuf> {
 
 /// writes every pass over the whole device, with `fdatasync` after each one. the buffer is allocated by the
 /// caller, so a failed allocation is known before the first write.
+/// the caller checks the initial state; `check` rechecks it before each subsequent pass.
 pub(super) fn overwrite(
     file: &mut File,
     size: u64,
     buf: &mut [u8],
     opts: &Options,
+    mut check: impl FnMut(&mut File) -> io::Result<()>,
 ) -> io::Result<()> {
     let total = size.saturating_mul(u64::from(opts.passes));
     let mut progress = Progress::new(Some(total), opts.quiet);
-    let result = overwrite_passes(file, size, buf, opts, &mut progress);
+    let result = overwrite_passes(file, size, buf, opts, &mut progress, &mut check);
     progress.finish();
     result
 }
@@ -119,8 +121,12 @@ fn overwrite_passes(
     buf: &mut [u8],
     opts: &Options,
     progress: &mut Progress,
+    check: &mut impl FnMut(&mut File) -> io::Result<()>,
 ) -> io::Result<()> {
     for pass in 0..opts.passes {
+        if pass > 0 {
+            check(file)?;
+        }
         let pattern = erase::pattern_for_pass(pass, opts.passes);
         if opts.verbose {
             progress.finish();
@@ -185,6 +191,54 @@ impl Drop for AlignedBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn options(passes: u32) -> Options {
+        Options {
+            passes,
+            verbose: false,
+            force: true,
+            kill_holders: false,
+            allow_protected: false,
+            quiet: true,
+            verify: false,
+        }
+    }
+
+    #[test]
+    fn failed_check_stops_before_second_pass() {
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(&[42; 16]).unwrap();
+        let mut calls = 0;
+        let err = overwrite(&mut file, 16, &mut [0; 16], &options(3), |file| {
+            calls += 1;
+            assert_eq!(file.metadata().unwrap().len(), 16);
+            Err(io::Error::other("state check failed"))
+        })
+        .unwrap_err();
+
+        assert_eq!(calls, 1);
+        assert_eq!(err.to_string(), "state check failed");
+        file.seek(SeekFrom::Start(0)).unwrap();
+        let mut contents = [1; 16];
+        std::io::Read::read_exact(&mut file, &mut contents).unwrap();
+        assert_eq!(contents, [0; 16]);
+    }
+
+    #[test]
+    fn checks_run_between_passes_after_previous_write() {
+        let mut file = tempfile::tempfile().unwrap();
+        let mut calls = 0;
+        overwrite(&mut file, 16, &mut [0; 16], &options(3), |file| {
+            file.seek(SeekFrom::Start(0))?;
+            let mut contents = [0; 16];
+            std::io::Read::read_exact(file, &mut contents)?;
+            assert_eq!(contents, [if calls == 0 { 0 } else { 255 }; 16]);
+            calls += 1;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(calls, 2);
+    }
 
     #[test]
     fn busy_is_a_refusal_that_names_the_flag() {

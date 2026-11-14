@@ -253,7 +253,16 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         if cli.verbose {
             eprintln!("erasing {shown} ({} passes)", cli.passes);
         }
-        match overwrite(file, facts.size, buf.as_mut_slice(), opts) {
+        match overwrite(
+            file,
+            facts.size,
+            buf.as_mut_slice(),
+            opts,
+            |file| match unchanged(target, facts, file).map_err(io::Error::other)? {
+                true => Ok(()),
+                false => Err(io::Error::other("device state changed between passes")),
+            },
+        ) {
             Ok(()) => {
                 if let Some(log) = &log_file {
                     log.record(&target.shown, kind, facts.size, Outcome::Ok, "");

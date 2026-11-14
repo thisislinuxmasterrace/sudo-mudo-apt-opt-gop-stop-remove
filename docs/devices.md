@@ -46,7 +46,7 @@ the tool prints the device summary and asks you to type the exact device path, a
 
 - writes go through `O_DIRECT`, from an aligned buffer, in 1 MiB chunks. `fdatasync` follows each pass.
 - passes are the same as for files: zeros, ones, random, the last one random.
-- before the first write the tool checks again that the open descriptor still points at the same device (`rdev`), and that the sysfs state and the size are unchanged.
+- before each pass the tool checks again that the open descriptor still points at the same device (`rdev`), and that the sysfs state and the size are unchanged. a change or check failure stops the erase.
 - an interrupt leaves the device partly erased. nothing can restore it.
 
 ## flags

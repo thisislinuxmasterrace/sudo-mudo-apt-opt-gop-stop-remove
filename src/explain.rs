@@ -51,7 +51,7 @@ pub(crate) fn advice(entries: &[EntryAssessment]) -> Vec<String> {
         lines.push("  - symbolic link: erasing it removes only the link. erase the target itself to overwrite its data.".to_owned());
     }
     if flash {
-        lines.push("  - flash storage (ssd, usb stick, sd card): the drive may keep old blocks that an overwrite never reaches. the drive's own erase works on the whole disk and destroys everything on it, the system disk included, so check `<disk>` first. nvme: `nvme sanitize /dev/<disk> --sanact=2` or `nvme format /dev/<disk> --ses=1`. sata ssd: `hdparm --user-master u --security-set-pass <password> /dev/<disk>` and then `hdparm --user-master u --security-erase <password> /dev/<disk>`; an interrupted run or a frozen drive can leave it password-locked. data kept on an encrypted volume is better handled by destroying its key: `cryptsetup luksErase /dev/<device>` removes every key slot and makes the volume permanently unreadable. usb sticks and sd cards have no such commands.".to_owned());
+        lines.push("  - flash storage (ssd, usb stick, sd card): the drive may keep old blocks that an overwrite never reaches. the drive's own erase works on the whole disk and destroys everything on it, the system disk included, so check `<disk>` first. nvme: `nvme sanitize /dev/<disk> --sanact=2` or `nvme format /dev/<disk> --ses=1`. sata ssd: `hdparm --user-master u --security-set-pass <password> /dev/<disk>` and then `hdparm --user-master u --security-erase <password> /dev/<disk>`; an interrupted run or a frozen drive can leave it password-locked. for a luks volume `cryptsetup luksErase /dev/<device>` removes every key slot, which makes the volume unreadable unless a header or key backup exists, so check `<device>` first. other encryption types need their own key handling. usb sticks and sd cards have no such commands.".to_owned());
     }
     if dm_crypt {
         lines.push("  - dm-crypt volume: what is unreadable without the key is the whole volume, not one file. for a luks volume `cryptsetup luksErase /dev/<device>` removes every key slot, which makes the volume unreadable unless a header or key backup exists, so check `<device>` first. other dm-crypt types have no such command. an overwrite of one file only reaches the encrypted blocks.".to_owned());
@@ -193,5 +193,15 @@ mod tests {
         let text = text(&[entry("ext4", "flash")]).to_lowercase();
         assert!(!text.contains("securely erased"));
         assert!(!text.contains("guarantee"));
+    }
+
+    #[test]
+    fn flash_key_advice_accounts_for_header_and_key_backups() {
+        let text = text(&[entry("ext4", "flash")]);
+        assert!(
+            text.contains("unless a header or key backup exists"),
+            "{text}"
+        );
+        assert!(!text.contains("permanently unreadable"), "{text}");
     }
 }

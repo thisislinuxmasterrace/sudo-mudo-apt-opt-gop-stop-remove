@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // launcher: runs the native binary shipped by the matching platform package. build.mjs copies this
-// script to bin/sudo-mudo-apt-opt-gop-stop-remove.js of the launcher package.
+// script to bin/mudo.js of the launcher package.
 "use strict";
 
 const { spawn } = require("node:child_process");
@@ -47,7 +47,7 @@ function binaryPath() {
     );
   }
   const ordered = key.startsWith("linux-") && isMusl() ? [...candidates].reverse() : candidates;
-  const exe = process.platform === "win32" ? `${NAME}.exe` : NAME;
+  const exe = process.platform === "win32" ? "mudo.exe" : "mudo";
   for (const pkg of ordered) {
     try {
       const manifest = require.resolve(`${pkg}/package.json`);

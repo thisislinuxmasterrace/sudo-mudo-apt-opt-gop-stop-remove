@@ -7,7 +7,7 @@
   "author": "archhaze24",
   "repository": { "type": "git", "url": "git+https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove.git" },
   "homepage": "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove#readme",
-  "bin": { "sudo-mudo-apt-opt-gop-stop-remove": "bin/sudo-mudo-apt-opt-gop-stop-remove.js" },
+  "bin": { "mudo": "bin/mudo.js" },
   "files": ["bin", "README.md", "LICENSE"],
   "engines": { "node": ">=18" },
   "optionalDependencies": {}

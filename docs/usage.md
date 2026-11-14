@@ -4,7 +4,22 @@ how to erase files and trees. flags are listed in the [reference](reference.md#f
 
 contents: [what an erase does](#what-an-erase-does) · [before anything is erased](#before-anything-is-erased) · [confirmation](#confirmation) · [trees](#trees) · [recipes](#recipes) · [in scripts](#in-scripts) · [interrupts](#interrupts) · [locked files on windows](#locked-files-on-windows)
 
-the examples use the full binary name, `sudo-mudo-apt-opt-gop-stop-remove`. it has no short alias on purpose.
+the executable is `mudo`; the package name stays `sudo-mudo-apt-opt-gop-stop-remove`.
+
+## invocation
+
+every command requires `sudo mudo apt opt gop stop remove`, with the five words in that exact order. put options after `remove`. missing, reordered or misspelled words are refused before any erase. help and version follow the same rule:
+
+```sh
+sudo mudo apt opt gop stop remove --help
+sudo mudo apt opt gop stop remove --version
+```
+
+unix requires root plus sudo's user markers, checked against the account database. a root shell alone is insufficient. both the invoking user's home and the elevated home stay protected. ordinary unix runs therefore use the root hard-link refusal too.
+
+windows requires elevation and an ancestor whose image is the native system `sudo.exe`, including when a node launcher sits between them. use windows 11 24h2 or later, enabled uac and inline sudo (`sudo config --enable normal` in an elevated console). start an elevated console, then still type `sudo mudo apt opt gop stop remove ...`. this mode keeps native sudo alive as the parent. the ordinary non-elevated uac handoff can lose that parent and is refused, as is new-window mode. inline sudo allows input from the originating console; review [microsoft's security considerations](https://learn.microsoft.com/en-us/windows/advanced-settings/sudo/#security-considerations) before enabling it. an administrator shell alone, third-party sudo replacements and launches whose ancestry cannot be read are refused.
+
+the invocation check is a cooperative guard against mistakes, not an authentication or security boundary.
 
 ## what an erase does
 
@@ -17,9 +32,9 @@ for each file the tool:
 a symbolic link is removed as a link and never followed, so its target is untouched. read-only files and directories, and entries the owner cannot access at all, are made accessible to their owner first.
 
 ```sh
-sudo-mudo-apt-opt-gop-stop-remove venom.exe             # one pass
-sudo-mudo-apt-opt-gop-stop-remove -n 3 disk-dump.img    # three passes
-sudo-mudo-apt-opt-gop-stop-remove --verify -f notes.txt # read the last pass back and compare
+sudo mudo apt opt gop stop remove venom.exe             # one pass
+sudo mudo apt opt gop stop remove -n 3 disk-dump.img    # three passes
+sudo mudo apt opt gop stop remove --verify -f notes.txt # read the last pass back and compare
 ```
 
 `--verify` is explained in [guarantees and limits](guarantees-and-limits.md#what---verify-proves).
@@ -70,27 +85,27 @@ a directory needs `-r`. the tool walks it depth-first and erases the contents be
 secret files (`.env`, keys, dumps): look first, then erase.
 
 ```sh
-sudo-mudo-apt-opt-gop-stop-remove --dry-run .env id_ed25519 dump.sql
-sudo-mudo-apt-opt-gop-stop-remove .env id_ed25519 dump.sql
+sudo mudo apt opt gop stop remove --dry-run .env id_ed25519 dump.sql
+sudo mudo apt opt gop stop remove .env id_ed25519 dump.sql
 ```
 
 a build directory, keeping what you want to keep:
 
 ```sh
-sudo-mudo-apt-opt-gop-stop-remove -r --exclude '*.lock' --exclude .git build/
+sudo mudo apt opt gop stop remove -r --exclude '*.lock' --exclude .git build/
 ```
 
 a list of paths from `find`. a list on stdin needs `-f` (the question would also read stdin), so check the plan with a dry run first:
 
 ```sh
-find build -name '*.tmp' -print0 | sudo-mudo-apt-opt-gop-stop-remove --dry-run --json -0 --files-from - | jq .objects
-find build -name '*.tmp' -print0 | sudo-mudo-apt-opt-gop-stop-remove -f -0 --files-from -
+find build -name '*.tmp' -print0 | sudo mudo apt opt gop stop remove --dry-run --json -0 --files-from - | jq .objects
+find build -name '*.tmp' -print0 | sudo mudo apt opt gop stop remove -f -0 --files-from -
 ```
 
 a record of what was erased, for handing over a machine or a directory. a record is not proof of erasure: see [guarantees and limits](guarantees-and-limits.md#what---verify-proves).
 
 ```sh
-sudo-mudo-apt-opt-gop-stop-remove -r --log erase-$(date +%F).jsonl old-project/
+sudo mudo apt opt gop stop remove -r --log erase-$(date +%F).jsonl old-project/
 ```
 
 old data in the unused space of a volume: see [wipe-free](wipe-free.md).
@@ -100,7 +115,7 @@ old data in the unused space of a volume: see [wipe-free](wipe-free.md).
 cron and ci have no terminal, so they need `-f`. `-q` turns the progress line off. branch on the exit code:
 
 ```sh
-sudo-mudo-apt-opt-gop-stop-remove -q -f -r /srv/scratch/old-run
+sudo mudo apt opt gop stop remove -q -f -r /srv/scratch/old-run
 case $? in
   0) echo erased ;;
   4) echo "not everything was erased" ;;

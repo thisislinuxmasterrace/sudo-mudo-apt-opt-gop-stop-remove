@@ -9,7 +9,7 @@ contents: [toolchain](#toolchain) · [checks](#checks) · [tests](#tests) · [sc
 rust 1.88 or newer (`rust-version = "1.88"`, edition 2024). the code uses let-chains, so the minimum must not be lowered. re-check the minimum with `cargo check --all-targets --locked` on a 1.88 toolchain when dependencies or the edition change.
 
 ```sh
-cargo build --release   # target/release/sudo-mudo-apt-opt-gop-stop-remove
+cargo build --release   # target/release/mudo
 ```
 
 ## checks
@@ -19,7 +19,7 @@ the same commands run in ci:
 ```sh
 cargo fmt --all -- --check
 cargo clippy --all-targets --locked -- -D warnings
-cargo test --all-targets --locked
+cargo --config "target.$(rustc -vV | sed -n 's/^host: //p').runner=['sudo','-n']" test --all-targets --locked
 ```
 
 the windows code only compiles on windows or with the windows target. to check that it still builds from another os (needs `rustup target add x86_64-pc-windows-gnu`; it compiles, it does not run):
@@ -31,6 +31,7 @@ cargo clippy --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 ## tests
 
 - integration tests in `tests/*.rs` run the real binary on files they create in temporary directories, grouped by topic. helpers: `tests/common/mod.rs`. unit tests sit next to the code.
+- unix integration calls use genuine sudo. run test executables with the sudo runner above so temporary file ownership, log reads and root hard-link checks agree. windows hosted ci runs source unit tests and direct-invocation refusal tests; positive cli integration needs an isolated windows 11 vm with native sudo and uac configured. a missing native sudo is reported as a coverage gap, never replaced by an admin-only bypass.
 - the tool erases data for real. run `cargo test` in a throwaway environment (a container or a vm) rather than on a machine with data you care about, and never point a manual run at real data.
 - some tests need unix or linux, and the root branch of the hard link rule runs only as root (`sudo`). copy-on-write filesystems prove nothing about in-place overwrites: use an ext4 image, for example through `fuse2fs`, for real overwrite checks.
 - there are no tests that erase a real block device. ci runs unit tests of the device functions and the refusal tests only.

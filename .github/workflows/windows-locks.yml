@@ -25,6 +25,38 @@ jobs:
       - name: build release binary
         run: cargo build --release --locked
 
-      - name: locked file scenarios
+      - name: check native sudo availability
+        id: sudo
         shell: pwsh
-        run: pwsh -NoProfile -File tests/windows/locks.ps1 -Binary target\release\sudo-mudo-apt-opt-gop-stop-remove.exe
+        run: |
+          $sudo = Join-Path $env:SystemRoot 'System32\sudo.exe'
+          $usable = $false
+          if (Test-Path -LiteralPath $sudo -PathType Leaf) {
+            $psi = [System.Diagnostics.ProcessStartInfo]::new($sudo)
+            foreach ($arg in @((Join-Path $env:SystemRoot 'System32\cmd.exe'), '/c', 'exit', '0')) {
+              $psi.ArgumentList.Add($arg)
+            }
+            $psi.UseShellExecute = $false
+            try {
+              $process = [System.Diagnostics.Process]::Start($psi)
+              if ($process.WaitForExit(30000)) {
+                $usable = $process.ExitCode -eq 0
+              } else {
+                $process.Kill($true)
+                $process.WaitForExit()
+              }
+            } catch {
+              Write-Warning "native windows sudo probe failed: $($_.Exception.Message)"
+            }
+          }
+          "usable=$($usable.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          if (-not $usable) { Write-Warning 'native windows sudo unavailable or unusable; locked file integration tests skipped' }
+
+      - name: locked file scenarios
+        if: steps.sudo.outputs.usable == 'true'
+        shell: pwsh
+        run: |
+          $sudo = Join-Path $env:SystemRoot 'System32\sudo.exe'
+          & $sudo (Resolve-Path target\release\mudo.exe).ProviderPath apt opt gop stop remove --version
+          if ($LASTEXITCODE -ne 0) { throw "mudo failed through usable native sudo: $LASTEXITCODE" }
+          pwsh -NoProfile -File tests/windows/locks.ps1 -Binary target\release\mudo.exe

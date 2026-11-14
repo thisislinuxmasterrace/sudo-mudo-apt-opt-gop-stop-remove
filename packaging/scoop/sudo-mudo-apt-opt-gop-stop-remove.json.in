@@ -10,7 +10,7 @@
             "extract_dir": "sudo-mudo-apt-opt-gop-stop-remove-@TAG@-x86_64-pc-windows-msvc"
         }
     },
-    "bin": "sudo-mudo-apt-opt-gop-stop-remove.exe",
+    "bin": "mudo.exe",
     "checkver": "github",
     "autoupdate": {
         "architecture": {

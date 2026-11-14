@@ -19,12 +19,12 @@
 #   - compatible with bash 3.2 (the default bash on macos).
 #
 # usage: tests/manual/macos_bind_mount.sh [path/to/binary]
-#   default: target/release/sudo-mudo-apt-opt-gop-stop-remove from the repository root.
+#   default: target/release/mudo from the repository root.
 #   build first: cargo build --release
 
 set -euo pipefail
 
-NAME=sudo-mudo-apt-opt-gop-stop-remove
+NAME=mudo
 REPO=$(cd "$(dirname "$0")/../.." && pwd -P)
 BIN=${1:-$REPO/target/release/$NAME}
 
@@ -124,7 +124,7 @@ is_mounted "$bind" || die "after mount_nullfs $bind is not listed in the mount t
 echo
 echo "== A: --dry-run -r $work/tree"
 code=0
-out_a=$("$BIN" --dry-run -r "$work/tree" 2>&1) || code=$?
+out_a=$(sudo "$BIN" apt opt gop stop remove --dry-run -r "$work/tree" 2>&1) || code=$?
 echo "$out_a"
 echo "exit code: $code (expected 0)"
 [ "$code" -eq 0 ] || fail "dry run: exit $code, expected 0"
@@ -141,7 +141,7 @@ check_sources "dry run"
 echo
 echo "== B: -f -r $work/tree (erase)"
 code=0
-out_b=$("$BIN" -f -r "$work/tree" 2>&1) || code=$?
+out_b=$(sudo "$BIN" apt opt gop stop remove -f -r "$work/tree" 2>&1) || code=$?
 echo "$out_b"
 echo "exit code: $code (expected 4: tree is kept, the mount point inside it was skipped)"
 [ "$code" -eq 4 ] || fail "erase: exit $code, expected 4"

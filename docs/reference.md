@@ -1,12 +1,12 @@
 # reference
 
-every flag, exit code and file format. `sudo-mudo-apt-opt-gop-stop-remove --help` is the authoritative flag list; this page follows it.
+every flag, exit code and file format. `sudo mudo apt opt gop stop remove --help` is the authoritative flag list; this page follows it.
 
 contents: [flags](#flags) · [exit codes](#exit-codes) · [exclude globs](#exclude-globs) · [path lists](#path-lists) · [log format](#log-format) · [dry-run json](#dry-run-json) · [progress](#progress) · [man page and completions](#man-page-and-completions)
 
 ## flags
 
-usage: `sudo-mudo-apt-opt-gop-stop-remove [OPTIONS] [PATHS]...`
+usage: `sudo mudo apt opt gop stop remove [OPTIONS] [PATHS]...`
 
 | flag | default | meaning |
 | --- | --- | --- |

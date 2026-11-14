@@ -69,7 +69,10 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: test
-        run: cargo test --all-targets --locked
+        shell: bash
+        run: |
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          cargo --config "target.$host.runner=['sudo','-n']" test --all-targets --locked
 
   # the man page and the completions come from the clap definition; one run serves every target.
   docs:
@@ -146,15 +149,25 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: cargo build --release --locked --target "$TARGET"
 
-      - name: smoke test
+      - name: smoke test (unix)
+        if: runner.os != 'Windows'
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
         run: |
-          binary="target/${TARGET}/release/sudo-mudo-apt-opt-gop-stop-remove"
-          if [[ "$TARGET" == *-windows-* ]]; then binary="${binary}.exe"; fi
-          "$binary" --version
-          "$binary" --help
+          binary="target/${TARGET}/release/mudo"
+          sudo "$binary" apt opt gop stop remove --version
+          sudo "$binary" apt opt gop stop remove --help
+
+      - name: smoke test refusal (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          & "target/$env:TARGET/release/mudo.exe" apt opt gop stop remove --version
+          if ($LASTEXITCODE -ne 1) { throw "expected direct invocation to be refused, exit $LASTEXITCODE" }
+          exit 0
 
       - name: package (unix)
         if: runner.os != 'Windows'
@@ -166,7 +179,7 @@ jobs:
           # branch names of manual runs may contain "/"; tags cannot.
           name="sudo-mudo-apt-opt-gop-stop-remove-${REF_NAME//\//-}-${TARGET}"
           mkdir "$name"
-          cp "target/${TARGET}/release/sudo-mudo-apt-opt-gop-stop-remove" LICENSE README.md "$name/"
+          cp "target/${TARGET}/release/mudo" LICENSE README.md "$name/"
           cp -R generated/man generated/completions "$name/"
           tar -czf "$name.tar.gz" "$name"
           if command -v sha256sum >/dev/null; then sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"; else shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"; fi
@@ -181,7 +194,7 @@ jobs:
         run: |
           $name = "sudo-mudo-apt-opt-gop-stop-remove-$($env:REF_NAME -replace '/', '-')-$($env:TARGET)"
           New-Item -ItemType Directory $name | Out-Null
-          Copy-Item "target/$($env:TARGET)/release/sudo-mudo-apt-opt-gop-stop-remove.exe", LICENSE, README.md $name
+          Copy-Item "target/$($env:TARGET)/release/mudo.exe", LICENSE, README.md $name
           Copy-Item generated/man, generated/completions "$name" -Recurse
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
@@ -240,14 +253,14 @@ jobs:
             archive="dist/${checksum%.sha256}"
             if [ "$ext" = zip ]; then
               unzip -Z1 "$archive" > "$RUNNER_TEMP/archive-files"
-              binary="${name}.exe"
+              binary="mudo.exe"
             else
               tar -tzf "$archive" > "$RUNNER_TEMP/archive-files"
-              binary="$name"
+              binary="mudo"
             fi
             prefix="${name}-${ref}-${target}"
-            for path in "$binary" LICENSE README.md "man/man1/${name}.1" \
-              "completions/${name}.bash" "completions/_${name}" "completions/${name}.fish"; do
+            for path in "$binary" LICENSE README.md "man/man1/mudo.1" \
+              "completions/mudo.bash" "completions/_mudo" "completions/mudo.fish"; do
               grep -Fx "$prefix/$path" "$RUNNER_TEMP/archive-files"
             done
             grep -E "^${prefix}/completions/[^/]+[.]ps1$" "$RUNNER_TEMP/archive-files"

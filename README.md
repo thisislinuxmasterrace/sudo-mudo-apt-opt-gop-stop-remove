@@ -19,35 +19,42 @@ there is no release yet. release archives, npm, homebrew and scoop are prepared 
 build from source (rust 1.88 or newer):
 
 ```sh
-cargo build --release   # target/release/sudo-mudo-apt-opt-gop-stop-remove
+cargo build --release   # target/release/mudo
 ```
 
 ## quick start
 
-the examples use the full binary name. it has no short alias on purpose.
+the executable is `mudo`; the project and package names stay `sudo-mudo-apt-opt-gop-stop-remove`. every invocation requires literal `sudo` and the exact words `apt opt gop stop remove`, including help and version:
+
+```sh
+sudo mudo apt opt gop stop remove --help
+sudo mudo apt opt gop stop remove --version
+```
+
+on unix, sudo must run it as root. on windows, use native system `sudo.exe` from an elevated console on windows 11 24h2 or later, with uac and inline sudo enabled; the console alone is insufficient. the ordinary non-elevated uac handoff and launch modes whose sudo ancestry cannot be verified are refused. these checks prevent accidental use, not deliberate tampering. see [invocation rules](docs/usage.md#invocation).
 
 ```sh
 # look first, change nothing
-sudo-mudo-apt-opt-gop-stop-remove --dry-run -r build/
+sudo mudo apt opt gop stop remove --dry-run -r build/
 
 # look first and get advice for these paths, change nothing
-sudo-mudo-apt-opt-gop-stop-remove --explain notes.txt
+sudo mudo apt opt gop stop remove --explain notes.txt
 
 # erase a file; asks for confirmation
-sudo-mudo-apt-opt-gop-stop-remove notes.txt
+sudo mudo apt opt gop stop remove notes.txt
 
 # erase a tree, keeping some entries
-sudo-mudo-apt-opt-gop-stop-remove -r --exclude '*.lock' --exclude .git build/
+sudo mudo apt opt gop stop remove -r --exclude '*.lock' --exclude .git build/
 
 # scripts and cron have no terminal: -f asks no questions, -q hides progress
-sudo-mudo-apt-opt-gop-stop-remove -q -f -r /srv/scratch/old-run
+sudo mudo apt opt gop stop remove -q -f -r /srv/scratch/old-run
 
 # paths from find, with a json lines record of what was done
-find build -name '*.tmp' -print0 | sudo-mudo-apt-opt-gop-stop-remove -f -0 --files-from - --log erase.jsonl
+find build -name '*.tmp' -print0 | sudo mudo apt opt gop stop remove -f -0 --files-from - --log erase.jsonl
 
 # the free space of a volume, after the files are already deleted
-sudo-mudo-apt-opt-gop-stop-remove --dry-run --wipe-free /home
-sudo-mudo-apt-opt-gop-stop-remove --wipe-free /home
+sudo mudo apt opt gop stop remove --dry-run --wipe-free /home
+sudo mudo apt opt gop stop remove --wipe-free /home
 ```
 
 the exit code tells what happened: 0 done, 1 refused before erasing, 2 bad arguments, 3 declined, 4 not finished. see the [reference](docs/reference.md#exit-codes).

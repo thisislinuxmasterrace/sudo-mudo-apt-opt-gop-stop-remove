@@ -5,8 +5,8 @@ overwrite a whole disk or partition. this mode is experimental. linux only: on m
 contents: [targets](#targets) · [refusals](#refusals) · [confirmation](#confirmation) · [how it writes](#how-it-writes) · [flags](#flags) · [not covered](#not-covered)
 
 ```sh
-sudo-mudo-apt-opt-gop-stop-remove --dry-run /dev/sdb   # facts and refusals, writes nothing
-sudo-mudo-apt-opt-gop-stop-remove -n 3 /dev/sdb        # asks you to type /dev/sdb
+sudo mudo apt opt gop stop remove --dry-run /dev/sdb   # facts and refusals, writes nothing
+sudo mudo apt opt gop stop remove -n 3 /dev/sdb        # asks you to type /dev/sdb
 ```
 
 ## targets

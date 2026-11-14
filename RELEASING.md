@@ -1,6 +1,6 @@
 # releasing
 
-a release has four parts that go out in this order: the **github release** (archives, built by ci from a tag), **crates.io** (`cargo publish`), **npm** (wrapper packages assembled from the github release assets, so `npx sudo-mudo-apt-opt-gop-stop-remove` works) and the **homebrew and scoop** files. ci only builds and creates the github release. everything else is done by hand from a machine that is logged in; ci holds no publishing secrets.
+a release has four parts that go out in this order: the **github release** (archives, built by ci from a tag), **crates.io** (`cargo publish`), **npm** (wrapper packages assembled from the github release assets) and the **homebrew and scoop** files. package and archive names stay long; the executable is only `mudo`. ci only builds and creates the github release. everything else is done by hand from a machine that is logged in; ci holds no publishing secrets.
 
 replace `X.Y.Z` with the new version everywhere. for a prerelease use a semver prerelease version (`0.2.0-rc.1`, tag `v0.2.0-rc.1`).
 
@@ -16,7 +16,7 @@ replace `X.Y.Z` with the new version everywhere. for a prerelease use a semver p
 1. bump `version` in `Cargo.toml` and run `cargo check --locked --all-targets` after `cargo update -w` so `Cargo.lock` follows.
 2. finish `CHANGELOG.md`: the section `## [X.Y.Z] - <date>` must exist with the notes (they become the github release text). keep an empty `## [Unreleased]` above it and update the link references at the bottom. preview with `.github/scripts/release-notes.sh vX.Y.Z`.
 3. check the install section of `README.md`: it lists only channels that work after the release.
-4. run the checks: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked -- --skip device` in an isolated machine, the msrv check (`cargo +1.88.0 check --all-targets --locked`) and `cargo package --locked`.
+4. run the checks: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, the non-device tests in an isolated machine using the [sudo test runner](docs/development.md#checks), the msrv check (`cargo +1.88.0 check --all-targets --locked`) and `cargo package --locked`.
 5. commit as `release: X.Y.Z`, push `main`, and wait until `ci` and `windows locks` are green.
 6. optional safety net: run the release workflow by hand on `main` (`gh workflow run release.yml --ref main`). it builds all seven targets, checks their archive checksums and renders the packaging templates without creating a release. a manual run checks the `Unreleased` notes, falling back to the cargo version's finalized notes when that section is empty. inspect the target artifacts and the `packaging-validation` artifact: its `v0.0.0-validation` version and urls are fixtures, not published release links. each target artifact contains an archive and its checksum; the archive contains the binary, `LICENSE`, `README.md`, `man/man1/` and `completions/`.
 
@@ -55,8 +55,9 @@ publish the platform packages first and the launcher last, otherwise installs br
 ## 5. verify
 
 ```
-npx sudo-mudo-apt-opt-gop-stop-remove@X.Y.Z --version
-cargo install sudo-mudo-apt-opt-gop-stop-remove --version X.Y.Z --force && sudo-mudo-apt-opt-gop-stop-remove --version
+sudo npx --package=sudo-mudo-apt-opt-gop-stop-remove@X.Y.Z mudo apt opt gop stop remove --version
+cargo install sudo-mudo-apt-opt-gop-stop-remove --version X.Y.Z --force
+sudo mudo apt opt gop stop remove --version
 ```
 
 ## 6. homebrew and scoop
@@ -67,6 +68,6 @@ copy the `.rb` file to `Formula/` in `archhaze24/homebrew-tap` and the `.json` f
 
 ## notes
 
-- the macos binaries are not signed or notarized: a downloaded archive may need `xattr -d com.apple.quarantine sudo-mudo-apt-opt-gop-stop-remove`. installing through npm, cargo or homebrew does not trigger gatekeeper.
+- the macos binaries are not signed or notarized: a downloaded archive may need `xattr -d com.apple.quarantine mudo`. installing through npm, cargo or homebrew does not trigger gatekeeper.
 - the checksum files only detect corruption, not tampering with the release itself.
 - the musl platform packages carry a fully static binary; the launcher also detects musl at runtime and falls back to it when the glibc package is missing.

@@ -34,8 +34,22 @@ jobs:
       - name: clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      - name: test
-        run: cargo test --all-targets --locked
+      - name: test (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          cargo --config "target.$host.runner=['sudo','-n']" test --all-targets --locked
+
+      - name: unit tests (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo test --bin mudo --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --test invocation --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Output 'windows integration tests require native sudo; see the windows locks workflow'
 
   # the release scripts only run on a tag, so a broken one would show up too late. these checks
   # run the same scripts on fake checksums and publish nothing.

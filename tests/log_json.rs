@@ -285,7 +285,6 @@ fn json_with_wipe_free_is_an_argument_error() {
 fn non_utf8_paths_stay_distinct_in_dry_run_and_log() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
-    use std::process::Command;
 
     let dir = tempfile::tempdir().unwrap();
     let first = dir.path().join(OsStr::from_bytes(b"a\xffb"));
@@ -303,7 +302,7 @@ fn non_utf8_paths_stay_distinct_in_dry_run_and_log() {
     };
     let first_hex = hex(&first);
     let second_hex = hex(&second);
-    let dry = Command::new(BIN)
+    let dry = command()
         .args(["--dry-run", "--json"])
         .args([&plain, &first, &second])
         .output()
@@ -316,7 +315,7 @@ fn non_utf8_paths_stay_distinct_in_dry_run_and_log() {
     assert!(first.exists() && second.exists());
 
     let log = dir.path().join("erase.log");
-    let erased = Command::new(BIN)
+    let erased = command()
         .args(["-f", "--log"])
         .arg(&log)
         .args([&plain, &first, &second])

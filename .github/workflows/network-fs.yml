@@ -46,10 +46,10 @@ jobs:
           findmnt -T "$d/mnt" -no FSTYPE
 
       - name: check nfs
-        run: sudo bash tests/network/network_fs.sh target/debug/sudo-mudo-apt-opt-gop-stop-remove "$RUNNER_TEMP/nfs/mnt" nfs
+        run: sudo bash tests/network/network_fs.sh target/debug/mudo "$RUNNER_TEMP/nfs/mnt" nfs
 
       - name: check cifs
-        run: sudo bash tests/network/network_fs.sh target/debug/sudo-mudo-apt-opt-gop-stop-remove "$RUNNER_TEMP/smb/mnt" cifs
+        run: sudo bash tests/network/network_fs.sh target/debug/mudo "$RUNNER_TEMP/smb/mnt" cifs
 
       - name: unmount
         if: always()

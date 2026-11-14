@@ -42,7 +42,7 @@ before(() => {
   fs.mkdirSync(source);
   for (const [, target, platform] of platforms) {
     const windows = platform === "win32";
-    const executable = `${name}${windows ? ".exe" : ""}`;
+    const executable = `mudo${windows ? ".exe" : ""}`;
     fs.writeFileSync(path.join(source, executable), fake);
     const archive = path.join(assets, `${name}-${tag}-${target}.${windows ? "zip" : "tar.gz"}`);
     if (windows) execFileSync("python3", ["-m", "zipfile", "-c", archive, executable], { cwd: source, timeout: 30000 });
@@ -66,12 +66,14 @@ test("builds packages from verified local release archives", () => {
     assert.deepEqual(manifest.os, [platform]);
     assert.deepEqual(manifest.cpu, [cpu]);
     assert.deepEqual(manifest.libc, libc ? [libc] : undefined);
-    assert.equal(fs.readFileSync(path.join(dir, "bin", `${name}${platform === "win32" ? ".exe" : ""}`), "utf8"), fake);
+    assert.equal(fs.readFileSync(path.join(dir, "bin", `mudo${platform === "win32" ? ".exe" : ""}`), "utf8"), fake);
     assert.deepEqual(fs.readFileSync(path.join(dir, "LICENSE")), fs.readFileSync(path.join(root, "LICENSE")));
     dependencies[packageName] = "0.0.0";
   }
   const launcher = path.join(out, name);
-  assert.deepEqual(json(path.join(launcher, "package.json")).optionalDependencies, dependencies);
+  const manifest = json(path.join(launcher, "package.json"));
+  assert.deepEqual(manifest.optionalDependencies, dependencies);
+  assert.deepEqual(manifest.bin, { mudo: "bin/mudo.js" });
   assert.deepEqual(fs.readFileSync(path.join(launcher, "LICENSE")), fs.readFileSync(path.join(root, "LICENSE")));
 });
 
@@ -87,7 +89,7 @@ test("launcher forwards arguments and exit status", { skip: process.platform !==
     fs.cpSync(path.join(launcherOut, `${name}-${suffix}`), path.join(modules, `${name}-${suffix}`), { recursive: true });
   }
   const args = ["space in argument", "--example", "", "quoted'argument"];
-  const result = spawnSync(process.execPath, [path.join(modules, name, "bin", `${name}.js`), ...args], { encoding: "utf8", timeout: 30000, killSignal: "SIGKILL" });
+  const result = spawnSync(process.execPath, [path.join(modules, name, "bin", "mudo.js"), ...args], { encoding: "utf8", timeout: 30000, killSignal: "SIGKILL" });
   assert.ifError(result.error);
   assert.equal(result.status, 37, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), args);

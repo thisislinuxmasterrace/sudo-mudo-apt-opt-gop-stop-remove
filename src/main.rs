@@ -8,6 +8,7 @@ mod device;
 mod entry;
 mod erase;
 mod explain;
+mod invocation;
 mod json;
 mod log;
 mod paths;
@@ -25,13 +26,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::Parser;
-
-use cli::Cli;
 use paths::{list_label, normalize, read_paths};
 use run::{run_erase, run_wipe_free};
 
-const NAME: &str = env!("CARGO_PKG_NAME");
+const NAME: &str = "mudo";
 
 // exit codes, documented in the README. clap exits with 2 on a bad command line by itself.
 const EXIT_INVALID: u8 = 1;
@@ -40,7 +38,11 @@ const EXIT_DECLINED: u8 = 3;
 const EXIT_INCOMPLETE: u8 = 4;
 
 fn main() -> ExitCode {
-    let mut cli = Cli::parse();
+    if let Err(err) = invocation::check() {
+        eprintln!("mudo: {err}");
+        return ExitCode::from(EXIT_INVALID);
+    }
+    let mut cli = cli::parse();
     // an explanation changes nothing, so every later step treats it as a dry run.
     cli.dry_run |= cli.explain;
 

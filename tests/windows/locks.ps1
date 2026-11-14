@@ -10,6 +10,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $Binary = (Resolve-Path -LiteralPath $Binary).ProviderPath
+$sudo = Join-Path $env:SystemRoot 'System32\sudo.exe'
+if (-not (Test-Path -LiteralPath $sudo -PathType Leaf)) { throw 'native windows sudo is unavailable' }
 
 $tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
 $scratch = Join-Path $tempRoot ('locks-' + [guid]::NewGuid().ToString('N'))
@@ -32,7 +34,8 @@ function Show-Result([string]$Name, $Result) {
 }
 
 function Invoke-Binary([string[]]$Arguments) {
-    $psi = [System.Diagnostics.ProcessStartInfo]::new($Binary)
+    $psi = [System.Diagnostics.ProcessStartInfo]::new($sudo)
+    foreach ($arg in @($Binary, 'apt', 'opt', 'gop', 'stop', 'remove')) { $psi.ArgumentList.Add($arg) }
     foreach ($arg in $Arguments) { $psi.ArgumentList.Add($arg) }
     $psi.UseShellExecute = $false
     $psi.RedirectStandardInput = $true

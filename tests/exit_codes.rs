@@ -96,6 +96,22 @@ fn help_and_version_exit_with_zero() {
 }
 
 #[test]
+fn incomplete_or_wrong_command_rejects_help_and_version() {
+    for args in [
+        vec!["--help"],
+        vec!["apt", "--version"],
+        vec!["apt", "opt", "gop", "stop", "--help"],
+        vec!["apt", "opt", "gop", "stop", "wrong", "--help"],
+    ] {
+        let mut command = std::process::Command::new("sudo");
+        #[cfg(unix)]
+        command.arg("-n");
+        let out = command.arg(BIN).args(args).output().unwrap();
+        assert_exit(&out, 2);
+    }
+}
+
+#[test]
 fn help_lists_examples_and_exit_codes() {
     let out = run(&["--help"], "");
 

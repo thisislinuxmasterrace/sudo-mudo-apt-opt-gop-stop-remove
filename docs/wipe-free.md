@@ -5,8 +5,8 @@
 contents: [how it works](#how-it-works) · [what it refuses](#what-it-refuses) · [limits](#limits) · [flags](#flags)
 
 ```sh
-sudo-mudo-apt-opt-gop-stop-remove --dry-run --wipe-free /home    # shows the space it would fill
-sudo-mudo-apt-opt-gop-stop-remove --wipe-free /home -n 3
+sudo mudo apt opt gop stop remove --dry-run --wipe-free /home    # shows the space it would fill
+sudo mudo apt opt gop stop remove --wipe-free /home -n 3
 ```
 
 ## how it works
@@ -16,7 +16,7 @@ the files stay open until the pass ends, keeping their blocks allocated while th
 each retained file uses an open handle. if the process reaches its open-file limit before the volume is full, the run fails and releases the temporary files; it does not report a completed wipe.
 
 - nothing in `<dir>` is changed. the temporary files are unlinked on unix and deleted on close on windows, so a killed process leaves nothing behind.
-- the dry run and the prompt show the space available to the current user. blocks reserved for root (ext4 reserves 5% by default) are not available to ordinary users and are wiped only when run as root. if nothing could be written, the run fails with a message (exit code 4).
+- the dry run and the prompt show the reported available space. unix invocations require root and can also fill filesystem-reserved blocks (ext4 reserves 5% by default), so actual writes may exceed that estimate. if nothing could be written, the run fails with a message (exit code 4).
 - other programs writing to the volume may fail while it is full. on large disks this takes a long time. `-v` prints a line for every gigabyte written and a total for each pass; a progress line is drawn on a terminal unless `-q` is given.
 - the prompt is skipped with `-f`. ctrl+c, sigterm or sighup stops the fill, removes the temporary files and ends with exit code 4.
 

@@ -21,17 +21,17 @@ fail() {
 probe="$mnt/probe-$RANDOM.bin"
 head -c 65536 /dev/urandom > "$probe"
 
-dry=$("$bin" --dry-run "$probe" 2>&1) || fail "dry run failed: $dry"
+dry=$(sudo -n "$bin" apt opt gop stop remove --dry-run "$probe" 2>&1) || fail "dry run failed: $dry"
 echo "$dry"
 grep -Eq "$warn_kind is a network filesystem" <<<"$dry" || fail "no network warning for $kind"
 
-erase=$("$bin" -f "$probe" 2>&1) || fail "erase failed: $erase"
+erase=$(sudo -n "$bin" apt opt gop stop remove -f "$probe" 2>&1) || fail "erase failed: $erase"
 echo "$erase"
 grep -Eq "$warn_kind is a network filesystem" <<<"$erase" || fail "erase did not warn for $kind"
 [ ! -e "$probe" ] || fail "file still present after erase"
 
 set +e
-wipe=$("$bin" --wipe-free "$mnt" -f 2>&1)
+wipe=$(sudo -n "$bin" apt opt gop stop remove --wipe-free "$mnt" -f 2>&1)
 rc=$?
 set -e
 echo "$wipe"

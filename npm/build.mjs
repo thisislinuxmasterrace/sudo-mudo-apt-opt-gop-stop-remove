@@ -167,7 +167,7 @@ async function build({ tag, assets, out, version, template, work }) {
     extract(archive, unpacked);
     const dir = path.join(out, dirName(platform.pkg));
     fs.mkdirSync(path.join(dir, "bin"), { recursive: true });
-    const exe = platform.win ? `${NAME}.exe` : NAME;
+    const exe = platform.win ? "mudo.exe" : "mudo";
     const binary = findFile(unpacked, exe);
     if (!binary) throw new Error(`${exe} not found in ${archive}`);
     const target = path.join(dir, "bin", exe);
@@ -177,7 +177,7 @@ async function build({ tag, assets, out, version, template, work }) {
     const libc = platform.libc ? ` (${platform.libc})` : "";
     fs.writeFileSync(
       path.join(dir, "README.md"),
-      `# ${platform.pkg}\n\nprebuilt \`${NAME}\` binary for ${platform.os}/${platform.cpu}${libc}. install \`${NAME}\` instead of this package: https://github.com/${REPO}\n`,
+      `# ${platform.pkg}\n\nprebuilt \`mudo\` binary for ${platform.os}/${platform.cpu}${libc}. install \`${NAME}\` instead of this package: https://github.com/${REPO}\n`,
     );
     writeJson(path.join(dir, "package.json"), {
       name: platform.pkg,
@@ -197,7 +197,7 @@ async function build({ tag, assets, out, version, template, work }) {
 
   const dir = path.join(out, NAME);
   fs.mkdirSync(path.join(dir, "bin"), { recursive: true });
-  const script = path.join(dir, "bin", `${NAME}.js`);
+  const script = path.join(dir, "bin", "mudo.js");
   fs.copyFileSync(LAUNCHER, script);
   fs.chmodSync(script, 0o755);
   for (const doc of ["README.md", "LICENSE"]) {

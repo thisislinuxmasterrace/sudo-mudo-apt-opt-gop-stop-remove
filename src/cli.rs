@@ -2,17 +2,17 @@
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Command, CommandFactory, FromArgMatches, Parser};
 
 const EXAMPLES: &str = "\
 examples:
-  erase a file, after a question:        sudo-mudo-apt-opt-gop-stop-remove notes.txt
-  look first, change nothing:            sudo-mudo-apt-opt-gop-stop-remove --dry-run -r build/
-  look first and get advice:             sudo-mudo-apt-opt-gop-stop-remove --explain notes.txt
-  a tree, keeping some entries:          sudo-mudo-apt-opt-gop-stop-remove -r --exclude .git build/
-  paths from find, in a script:          find . -name '*.tmp' -print0 | sudo-mudo-apt-opt-gop-stop-remove -f -0 --files-from -
-  with a record of what was erased:      sudo-mudo-apt-opt-gop-stop-remove -r --log erase.jsonl build/
-  the free space of a volume:            sudo-mudo-apt-opt-gop-stop-remove --wipe-free /home
+  erase a file, after a question:        sudo mudo apt opt gop stop remove notes.txt
+  look first, change nothing:            sudo mudo apt opt gop stop remove --dry-run -r build/
+  look first and get advice:             sudo mudo apt opt gop stop remove --explain notes.txt
+  a tree, keeping some entries:          sudo mudo apt opt gop stop remove -r --exclude .git build/
+  paths from find, in a script:          find . -name '*.tmp' -print0 | sudo mudo apt opt gop stop remove -f -0 --files-from -
+  with a record of what was erased:      sudo mudo apt opt gop stop remove -r --log erase.jsonl build/
+  the free space of a volume:            sudo mudo apt opt gop stop remove --wipe-free /home
 
 exit codes: 0 done, 1 refused before erasing, 2 bad arguments, 3 declined, 4 not finished, 130 second ctrl+c.";
 
@@ -123,6 +123,36 @@ pub struct Cli {
     /// allow erasing protected system paths; a warning is printed every time. -f does not imply it
     #[arg(long = "i-know-what-i-am-doing")]
     pub allow_protected: bool,
+}
+
+/// builds the complete command tree for parsing and completion generation.
+pub fn command() -> Command {
+    let mut child = Cli::command().name("remove").display_name("mudo").arg(
+        clap::Arg::new("help")
+            .long("help")
+            .short('h')
+            .action(clap::ArgAction::Help),
+    );
+    for name in ["stop", "gop", "opt", "apt", "mudo"] {
+        child = Command::new(name)
+            .disable_help_flag(true)
+            .disable_help_subcommand(true)
+            .subcommand_required(true)
+            .subcommand(child);
+    }
+    child
+}
+
+pub fn parse() -> Cli {
+    let mut matches = command().get_matches();
+    for name in ["apt", "opt", "gop", "stop", "remove"] {
+        matches = matches
+            .remove_subcommand()
+            .filter(|(found, _)| found == name)
+            .map(|(_, matches)| matches)
+            .unwrap_or_else(|| unreachable!("required command was validated by clap"));
+    }
+    Cli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
 }
 
 /// removes a leading `./` and trailing `/` from an `--exclude` pattern, and refuses what cannot match.

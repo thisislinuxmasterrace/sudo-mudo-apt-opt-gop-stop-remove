@@ -17,7 +17,7 @@ use std::process::ExitCode;
 use clap::CommandFactory;
 use clap_complete::Shell;
 
-const BIN: &str = env!("CARGO_PKG_NAME");
+const BIN: &str = "mudo";
 
 fn main() -> ExitCode {
     let args: Vec<OsString> = env::args_os().skip(1).collect();
@@ -67,7 +67,12 @@ fn create_dir(dir: &Path) -> io::Result<()> {
 fn write_man(dir: &Path) -> io::Result<()> {
     create_dir(dir)?;
     let mut page = Vec::new();
-    clap_mangen::Man::new(cli::Cli::command()).render(&mut page)?;
+    clap_mangen::Man::new(
+        cli::Cli::command()
+            .name("mudo")
+            .bin_name("mudo apt opt gop stop remove"),
+    )
+    .render(&mut page)?;
     let path = dir.join(format!("{BIN}.1"));
     fs::write(&path, page)?;
     println!("{}", path.display());
@@ -76,7 +81,7 @@ fn write_man(dir: &Path) -> io::Result<()> {
 
 fn write_completions(shell: Shell, dir: &Path) -> io::Result<()> {
     create_dir(dir)?;
-    let mut cmd = cli::Cli::command();
+    let mut cmd = cli::command();
     let path = clap_complete::generate_to(shell, &mut cmd, BIN, dir)?;
     println!("{}", path.display());
     Ok(())

@@ -7,7 +7,17 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-pub const BIN: &str = env!("CARGO_BIN_EXE_sudo-mudo-apt-opt-gop-stop-remove");
+pub const BIN: &str = env!("CARGO_BIN_EXE_mudo");
+
+pub fn command() -> Command {
+    let mut command = Command::new("sudo");
+    #[cfg(unix)]
+    command.arg("-n");
+    command
+        .arg(BIN)
+        .args(["apt", "opt", "gop", "stop", "remove"]);
+    command
+}
 
 /// runs the binary with `stdin` as its input (empty means EOF).
 pub fn run(args: &[&str], stdin: &str) -> Output {
@@ -16,7 +26,7 @@ pub fn run(args: &[&str], stdin: &str) -> Output {
 
 /// like `run`, but from `cwd` when given, so relative paths resolve there.
 pub fn run_in(cwd: Option<&Path>, args: &[&str], stdin: &str) -> Output {
-    let mut command = Command::new(BIN);
+    let mut command = command();
     command
         .args(args)
         .stdin(Stdio::piped())
@@ -76,7 +86,7 @@ pub fn make_tree(root: &Path, name: &str, files: usize) -> PathBuf {
 pub fn run_with_one_block_file_limit(args: &[&str]) -> Output {
     Command::new("sh")
         .arg("-c")
-        .arg("trap '' XFSZ; ulimit -f 1 && exec \"$0\" \"$@\"")
+        .arg("trap '' XFSZ; ulimit -f 1 && exec sudo -n \"$0\" apt opt gop stop remove \"$@\"")
         .arg(BIN)
         .args(args)
         .stdin(Stdio::null())

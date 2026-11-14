@@ -10,21 +10,22 @@ contents: [cargo](#cargo) · [release archives](#release-archives) · [npm](#npm
 cargo install sudo-mudo-apt-opt-gop-stop-remove
 ```
 
-needs rust 1.88 or newer.
+needs rust 1.88 or newer. installs only the executable `mudo`; invoke it as `sudo mudo apt opt gop stop remove ...`.
 
 ## release archives
 
 the github releases of [the repository](https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases) carry one archive per target, `sudo-mudo-apt-opt-gop-stop-remove-<tag>-<target>.tar.gz` (`.zip` on windows), and a `.sha256` file for each. targets: `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-gnu`, `aarch64-unknown-linux-musl`, `x86_64-apple-darwin`, `aarch64-apple-darwin` and `x86_64-pc-windows-msvc`. the musl builds are fully static. the glibc builds are made on the current ubuntu runners and need a glibc as new as theirs (2.39 at the time of writing); on an older distribution use the musl archive.
 
-each archive holds the binary, the license, the readme, the man page in `man/man1/` and shell completions in `completions/` (bash, zsh, fish and powershell). read the man page in place with `man -l man/man1/sudo-mudo-apt-opt-gop-stop-remove.1`.
+each archive holds the binary, the license, the readme, the man page in `man/man1/` and shell completions in `completions/` (bash, zsh, fish and powershell). read the man page in place with `man -l man/man1/mudo.1`.
 
-the `.sha256` files only detect a corrupted download, not a replaced release. the macos binaries are not signed or notarized, so a downloaded archive may need `xattr -d com.apple.quarantine sudo-mudo-apt-opt-gop-stop-remove`.
+the `.sha256` files only detect a corrupted download, not a replaced release. the macos binaries are not signed or notarized, so a downloaded archive may need `xattr -d com.apple.quarantine mudo`. windows msvc builds link the c runtime statically; native system sudo still requires windows 11 24h2 or later and the [invocation setup](usage.md#invocation).
 
 ## npm
 
 ```sh
-npx sudo-mudo-apt-opt-gop-stop-remove --dry-run notes.txt
+sudo npx --package=sudo-mudo-apt-opt-gop-stop-remove mudo apt opt gop stop remove --dry-run notes.txt
 npm install -g sudo-mudo-apt-opt-gop-stop-remove
+sudo mudo apt opt gop stop remove --help
 ```
 
 the launcher package picks a platform package, `@archhaze24/sudo-mudo-apt-opt-gop-stop-remove-<os>-<arch>[-musl]`: linux x64 and arm64 (glibc and static musl), macos x64 and arm64, and windows x64. on musl systems the launcher prefers the musl package. the launcher passes the terminal through, so the confirmation questions work, and forwards termination signals to the tool.
@@ -51,7 +52,7 @@ both files are rendered by `.github/scripts/render-packaging.sh TAG [ASSET_DIR|-
 ## from source
 
 ```sh
-cargo build --release   # target/release/sudo-mudo-apt-opt-gop-stop-remove
+cargo build --release   # target/release/mudo
 ```
 
 the man page and the completions come from a dev-only example, see [reference](reference.md#man-page-and-completions).

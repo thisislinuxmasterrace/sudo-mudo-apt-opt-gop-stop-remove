@@ -4,6 +4,17 @@ all notable changes are listed here. the format follows [keep a changelog](https
 
 ## [Unreleased]
 
+### changed
+
+- the only executable is now `mudo`; package and archive names stay unchanged. every invocation, including help and version, requires `sudo mudo apt opt gop stop remove`. unix requires sudo user markers and root; windows requires native system sudo ancestry and elevation. an administrator shell alone is refused.
+- windows msvc builds link the c runtime statically.
+
+### fixed
+
+- windows fat32 free-space wipes roll over before the per-file limit instead of reporting success with free space left.
+- ctrl+c ends blocked windows holder and reboot prompts without waiting for an answer.
+- the invoking unix account's home remains protected when sudo changes the home environment.
+
 ### added
 
 - erase files, trees and links by overwriting and deleting them, with a dry run, a json summary, a json lines log, `--verify` and `--exclude`.

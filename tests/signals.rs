@@ -9,7 +9,7 @@ mod interrupt {
     use std::fs::{self, File};
     use std::io::{BufRead, BufReader, Read, Write};
     use std::path::Path;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
@@ -44,7 +44,7 @@ mod interrupt {
         let file = dir.path().join("big.bin");
         create_big_file(&file);
 
-        let mut child = Command::new(BIN)
+        let mut child = command()
             .args(["-f", "-v", "-n", "3", path_str(&file)])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -139,7 +139,7 @@ mod interrupt {
         fs::create_dir_all(tree.join("sub")).unwrap();
         create_big_file(&tree.join("sub/big.bin"));
 
-        let mut child = Command::new(BIN)
+        let mut child = command()
             .args(["-f", "-r", "-v", "-n", "3", path_str(&tree)])
             .stdin(Stdio::null())
             .stdout(Stdio::null())

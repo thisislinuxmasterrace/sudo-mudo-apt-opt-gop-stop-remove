@@ -40,7 +40,7 @@ refused for erase and for `--wipe-free`:
 
 on unix a directory is compared by device and inode with the protected ones and their ancestors, not by spelling. `/USR/bin` on a case-insensitive macos volume is `/usr/bin`, and a bind mount of `/usr` at `~/x` is refused too.
 
-the home directory (`$HOME` or the passwd entry on unix, `%USERPROFILE%` on windows) is refused for erase as a directory; files inside it can be erased. `--wipe-free` does not refuse it, because it changes no existing files.
+the home directory (`$HOME` or the passwd entry on unix, `%USERPROFILE%` on windows) is refused for erase as a directory; files inside it can be erased. unix also protects the invoking sudo account's home, resolved and retained before argument parsing, even when sudo resets `$HOME` to root's home. `--wipe-free` does not refuse home, because it changes no existing files.
 
 ## mount points
 

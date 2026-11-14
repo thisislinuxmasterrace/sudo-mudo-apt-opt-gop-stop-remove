@@ -6,6 +6,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Binary = (Resolve-Path -LiteralPath $Binary).ProviderPath
+$sudo = Join-Path $env:SystemRoot 'System32\sudo.exe'
+if (-not (Test-Path -LiteralPath $sudo -PathType Leaf)) { throw 'native windows sudo is unavailable' }
 $ScratchRoot = (Resolve-Path -LiteralPath $ScratchRoot).ProviderPath
 $scratch = Join-Path $ScratchRoot ('sudo-mudo-fat32-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch | Out-Null
@@ -60,8 +62,8 @@ function Invoke-VolumeCheck([int]$SizeMiB) {
             (Get-Volume -DriveLetter $partition.DriveLetter).FileSystem -ne 'FAT32') {
             throw 'wipe target identity changed'
         }
-        $arguments = @('--wipe-free', ('"' + $target + '"'), '-f', '-v')
-        $process = Start-Process -FilePath $Binary -ArgumentList $arguments -PassThru -NoNewWindow `
+        $arguments = @(('"' + $Binary + '"'), 'apt', 'opt', 'gop', 'stop', 'remove', '--wipe-free', ('"' + $target + '"'), '-f', '-v')
+        $process = Start-Process -FilePath $sudo -ArgumentList $arguments -PassThru -NoNewWindow `
             -RedirectStandardOutput $output -RedirectStandardError $errors
         [void]$process.Handle
         $clock = [System.Diagnostics.Stopwatch]::StartNew()

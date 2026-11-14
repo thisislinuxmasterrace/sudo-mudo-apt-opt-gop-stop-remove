@@ -30,14 +30,14 @@ class SudoMudoAptOptGopStopRemove < Formula
   end
 
   def install
-    bin.install "sudo-mudo-apt-opt-gop-stop-remove"
+    bin.install "mudo"
     man1.install Dir["man/man1/*.1"]
-    bash_completion.install "completions/sudo-mudo-apt-opt-gop-stop-remove.bash" => "sudo-mudo-apt-opt-gop-stop-remove"
-    zsh_completion.install "completions/_sudo-mudo-apt-opt-gop-stop-remove"
-    fish_completion.install "completions/sudo-mudo-apt-opt-gop-stop-remove.fish"
+    bash_completion.install "completions/mudo.bash" => "mudo"
+    zsh_completion.install "completions/_mudo"
+    fish_completion.install "completions/mudo.fish"
   end
 
   test do
-    assert_match version.to_s, shell_output("#{bin}/sudo-mudo-apt-opt-gop-stop-remove --version")
+    assert_match "run with sudo", shell_output("#{bin}/mudo apt opt gop stop remove --version 2>&1", 1)
   end
 end

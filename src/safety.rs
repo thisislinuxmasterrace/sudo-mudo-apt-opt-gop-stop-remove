@@ -114,17 +114,22 @@ fn is_system_protected(location: &Path) -> bool {
 }
 
 /// the home directory itself, as the platform reports it (`HOME` or the passwd entry on unix,
-/// `USERPROFILE` on windows). only erasing checks it; `--wipe-free` does not.
+/// `USERPROFILE` on windows), plus the invoking sudo account's home on unix. only erasing checks it;
+/// `--wipe-free` does not.
 #[cfg(unix)]
 fn is_home(location: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
 
     // device and inode, not the spelling: macos is case-insensitive, so `/users/x` is the same directory.
-    let Some(home) = std::env::home_dir().and_then(|home| fs::metadata(home).ok()) else {
+    let homes = [std::env::home_dir(), crate::invocation::sudo_home()];
+    let Ok(meta) = fs::symlink_metadata(location) else {
         return false;
     };
-    fs::symlink_metadata(location)
-        .is_ok_and(|meta| meta.is_dir() && meta.dev() == home.dev() && meta.ino() == home.ino())
+    meta.is_dir()
+        && homes.into_iter().flatten().any(|home| {
+            fs::metadata(home)
+                .is_ok_and(|home| meta.dev() == home.dev() && meta.ino() == home.ino())
+        })
 }
 
 #[cfg(not(unix))]

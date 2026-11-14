@@ -153,6 +153,25 @@ try {
             Add-Result $Name 'FAIL' "exit $($result.ExitCode), file removed: $gone, holder exited: $holderExited"
         }
     }
+
+    Invoke-Scenario '4. unicode path, FileShare.Read holder, --kill-holders' {
+        $file = New-RandomFile 'café-資料.bin'
+        $log = Join-Path $scratch 'café-資料.jsonl'
+        $expectedPath = [System.IO.Path]::GetFullPath($file)
+        $holder = Start-Holder -Path $file -Share ([System.IO.FileShare]::Read) -Name 'unicode'
+        $result = Invoke-Binary @('--kill-holders', '-f', '--verify', '--log', $log, $file)
+        Show-Result $Name $result
+        $holderExited = $holder.WaitForExit(10000)
+        $gone = -not (Test-Path -LiteralPath $file)
+        $record = Get-Content -LiteralPath $log -Raw -Encoding utf8 | ConvertFrom-Json
+        $logOk = $record.path -ceq $expectedPath -and $record.result -ceq 'ok' -and
+            $record.kind -ceq 'file' -and $record.verdict -ceq 'weak'
+        if ($result.ExitCode -eq 0 -and $gone -and $holderExited -and $logOk) {
+            Add-Result $Name 'PASS' 'exit 0, file removed, holder exited, log matches'
+        } else {
+            Add-Result $Name 'FAIL' "exit $($result.ExitCode), file removed: $gone, holder exited: $holderExited, log matches: $logOk"
+        }
+    }
 }
 finally {
     foreach ($holder in $holders) {

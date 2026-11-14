@@ -6,7 +6,7 @@ contents: [overview](#overview) · [module map](#module-map) · [data flow](#dat
 
 ## overview
 
-one binary crate, package `sudo-mudo-apt-opt-gop-stop-remove`, executable `mudo`, with two runtime dependencies on every platform (`clap`, `rand`), `nix` and `libc` on unix, and `windows-sys` on windows. there is no library crate. `src/invocation/` checks the sudo launch before parsing, including help and version. unix resolves sudo's invoking account for home protection; windows checks elevation and native system sudo process ancestry. `examples/gen_docs.rs` includes `src/cli.rs` to build the man page and completions; it uses dev-dependencies only, so the binary does not change.
+one binary crate, package `sudo-mudo-apt-opt-gop-stop-remove`, executable `mudo`, with two runtime dependencies on every platform (`clap`, `rand`), `nix` and `libc` on unix, and `windows-sys` on windows. there is no library crate. `src/invocation/` checks the sudo launch before parsing, including help and version. unix resolves sudo's invoking account for home protection; windows checks elevation and native system sudo process ancestry. `examples/gen_docs.rs` includes `src/cli.rs` to build the man page and completions; it uses dev-dependencies only, so the binary does not change. fish uses an explicit phrase predicate around generated leaf options because clap's fish generator limits subcommand depth.
 
 the code has three erase paths: files and trees (`src/erase/`), whole block devices on linux (`src/device/`) and the free space of a volume (`src/wipe.rs`). they share validation (`safety`), warnings (`storage`), the overwrite patterns, the interrupt flag and the log.
 

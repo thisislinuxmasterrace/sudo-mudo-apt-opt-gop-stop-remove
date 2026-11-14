@@ -81,8 +81,58 @@ fn write_man(dir: &Path) -> io::Result<()> {
 
 fn write_completions(shell: Shell, dir: &Path) -> io::Result<()> {
     create_dir(dir)?;
+    if shell == Shell::Fish {
+        return write_fish(dir);
+    }
     let mut cmd = cli::command();
     let path = clap_complete::generate_to(shell, &mut cmd, BIN, dir)?;
+    println!("{}", path.display());
+    Ok(())
+}
+
+fn write_fish(dir: &Path) -> io::Result<()> {
+    // clap's fish generator stops below three subcommands; gate generated leaf options explicitly.
+    let mut leaf = cli::Cli::command().name(BIN);
+    let mut options = Vec::new();
+    clap_complete::generate(Shell::Fish, &mut leaf, BIN, &mut options);
+    let mut script = String::from(
+        "function __fish_mudo_at\n\
+    set -l words (commandline -opc)\n\
+    if test \"$words[1]\" = sudo\n\
+        set -e words[1]\n\
+    end\n\
+    set -e words[1]\n\
+    set -l prefix apt opt gop stop remove\n\
+    set -l needed $argv[1]\n\
+    if test $needed -lt 5\n\
+        test (count $words) -eq $needed; or return 1\n\
+    else\n\
+        test (count $words) -ge 5; or return 1\n\
+    end\n\
+    for i in 1 2 3 4 5\n\
+        if test $i -gt $needed\n\
+            break\n\
+        end\n\
+        test \"$words[$i]\" = \"$prefix[$i]\"; or return 1\n\
+    end\n\
+end\n\n",
+    );
+    for (index, word) in ["apt", "opt", "gop", "stop", "remove"].iter().enumerate() {
+        script.push_str(&format!(
+            "complete -c mudo -n '__fish_mudo_at {index}' -f -a {word}\n"
+        ));
+    }
+    let options = String::from_utf8(options).map_err(io::Error::other)?;
+    for line in options.lines() {
+        if let Some(rest) = line.strip_prefix("complete -c mudo") {
+            script.push_str(&format!("complete -c mudo -n '__fish_mudo_at 5'{rest}\n"));
+        } else {
+            script.push_str(line);
+            script.push('\n');
+        }
+    }
+    let path = dir.join("mudo.fish");
+    fs::write(&path, script)?;
     println!("{}", path.display());
     Ok(())
 }

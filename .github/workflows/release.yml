@@ -95,6 +95,10 @@ jobs:
           for shell in bash zsh fish powershell; do
             cargo run --locked --example gen_docs -- completions "$shell" generated/completions
           done
+          for completion in generated/completions/*; do
+            grep -q 'wipe-free' "$completion"
+            grep -q 'explain' "$completion"
+          done
           find generated -type f
 
       - name: upload

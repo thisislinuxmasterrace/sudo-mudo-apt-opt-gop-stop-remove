@@ -133,15 +133,14 @@ pub(crate) fn is_target_boundary(_path: &Path) -> io::Result<bool> {
 
 /// `rel` is the path of `path` from its command-line argument, empty for the argument itself.
 fn add(walk: &mut Walk<'_>, summary: &mut Summary, path: &Path, rel: &Path) {
-    let meta = match fs::symlink_metadata(path) {
-        Ok(meta) => meta,
+    let (meta, mut assessment) = match Assessment::capture(path) {
+        Ok(result) => result,
         Err(_) => {
             summary.unreadable += 1;
             return;
         }
     };
 
-    let mut assessment = Assessment::for_path(path, &meta);
     if meta.is_file() && erase::link_count(&meta) > 1 && walk.refuse_hard_links {
         summary.coverage_limited = true;
         assessment = assessment.unattempted();

@@ -21,7 +21,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `src/confirm.rs` | the confirmation: the plain one, the strict one for big `-r` runs, the wipe one |
 | `src/prompt.rs` | the single yes/no question helper, and the exact-text question |
 | `src/preview.rs`, `src/preview/json_output.rs`, `src/preview/tests.rs` | counts and assesses visited entries; text summary, dry-run json and unit tests |
-| `src/assessment.rs` | conservative per-entry verdict, reasons and facts shared by preview and erase reports |
+| `src/assessment.rs`, `src/assessment/windows.rs` | conservative per-entry verdict, reasons and facts shared by preview and erase reports; windows binds metadata and filesystem type to one no-follow handle |
 | `src/explain.rs` | `--explain`: advice lines from the assessment facts; commands are printed, never run |
 | `src/copies.rs` | advisory search for other copies by path: git work tree, sync folder, trash, editor backups |
 | `src/safety.rs` | path validation (`validate_target`, `validate_wipe_dir`), protected locations |

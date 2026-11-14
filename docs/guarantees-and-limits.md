@@ -45,7 +45,7 @@ encryption is a fact, never a verdict. on linux the tool reads sysfs for the dev
 
 other copies are looked for in four places only, by path and without reading file contents: a git work tree (a `.git` entry in the directory or one of its parents), a sync folder (dropbox, onedrive, google drive, icloud, nextcloud, owncloud, or a folder with a syncthing `.stfolder`), a trash folder, and editor backup or swap files next to a file (`name~`, `.name.swp`, `.name.swo`, `name.bak`, `name.orig`, `#name#`, `.#name`). a copy that is found is only listed. it is never erased, and the tool does not know whether the file is tracked or synced. `none_found` means nothing turned up in those places, not that no other copy exists: backups, snapshots, other machines and earlier file versions are not searched. links and special objects are not looked at.
 
-linux binds storage observations to an open descriptor with checked identity. macos reads the filesystem type through a checked descriptor when opening succeeds; its medium stays unknown. windows and other platforms conservatively leave assessment storage facts unknown. the existing storage warnings remain separate.
+linux binds storage observations to an open descriptor with checked identity. macos reads the filesystem type through a checked descriptor when opening succeeds; its medium stays unknown. windows reads the filesystem type and metadata from the same no-follow handle when it can open a regular file or directory; reparse points and failed queries leave it unknown. windows medium, compression and encryption remain unknown or unchecked. other platforms leave storage facts unknown. the existing storage warnings remain separate.
 
 ## what `--verify` proves
 

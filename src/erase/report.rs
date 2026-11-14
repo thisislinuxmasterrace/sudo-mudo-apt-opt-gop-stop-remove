@@ -6,14 +6,6 @@ use std::path::Path;
 use crate::assessment::Assessment;
 use crate::log::{Kind, Log, Outcome};
 
-#[cfg(windows)]
-pub(super) fn assess(path: &Path) -> Assessment {
-    std::fs::symlink_metadata(path).map_or_else(
-        |_| Assessment::unknown(),
-        |meta| Assessment::for_path(path, &meta),
-    )
-}
-
 /// writes one line to the log, when there is one. `passes` is recorded for regular files only.
 pub(super) fn log_object(
     log: Option<&Log>,

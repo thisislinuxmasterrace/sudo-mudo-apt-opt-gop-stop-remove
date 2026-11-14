@@ -7,6 +7,9 @@ use crate::copies::{self, Found};
 use crate::storage::{Compression, Encryption};
 use crate::{json, storage};
 
+#[cfg(windows)]
+mod windows;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Assessment {
     verdict: &'static str,
@@ -21,6 +24,26 @@ pub(crate) struct Assessment {
 
 impl Assessment {
     pub(crate) fn for_path(path: &Path, meta: &Metadata) -> Self {
+        let facts = if meta.file_type().is_symlink() || (!meta.is_file() && !meta.is_dir()) {
+            NO_FACTS
+        } else {
+            storage_facts(path, meta)
+        };
+        Self::with_facts(path, meta, facts)
+    }
+
+    pub(crate) fn capture(path: &Path) -> std::io::Result<(Metadata, Self)> {
+        let meta = std::fs::symlink_metadata(path)?;
+        #[cfg(windows)]
+        if let Some((opened, facts)) = windows::capture(path, &meta) {
+            let assessment = Self::with_facts(path, &opened, facts);
+            return Ok((opened, assessment));
+        }
+        let assessment = Self::for_path(path, &meta);
+        Ok((meta, assessment))
+    }
+
+    fn with_facts(path: &Path, meta: &Metadata, facts: StorageFacts) -> Self {
         if meta.file_type().is_symlink() {
             return Self {
                 verdict: "cosmetic",
@@ -44,7 +67,7 @@ impl Assessment {
                 None,
             );
         }
-        let (filesystem, medium, compression, encryption) = storage_facts(path, meta);
+        let (filesystem, medium, compression, encryption) = facts;
         let medium = match medium {
             Some(true) => "flash",
             Some(false) => "rotational",

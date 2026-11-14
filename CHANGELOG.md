@@ -4,6 +4,8 @@ all notable changes are listed here. the format follows [keep a changelog](https
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-15
+
 ### changed
 
 - the only executable is now `mudo`; package and archive names stay unchanged. every invocation, including help and version, requires `sudo mudo apt opt gop stop remove`. unix requires sudo user markers and root; windows requires native system sudo ancestry and elevation. an administrator shell alone is refused.
@@ -27,3 +29,6 @@ all notable changes are listed here. the format follows [keep a changelog](https
 - compression facts on linux, read from the mount options: `enabled`, `not_supported` or `unknown`.
 - sighup stops an erase like ctrl+c and sigterm.
 - release archives with a man page and shell completions, and packaging for npm, homebrew and scoop.
+
+[Unreleased]: https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases/tag/v0.1.0

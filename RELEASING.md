@@ -2,6 +2,8 @@
 
 publish in order: github release, crates.io, npm, then homebrew and scoop. ci creates only the github release; publish the rest manually. replace `X.Y.Z` with the version (for example `0.2.0-rc.1` for a prerelease).
 
+run the tag and publishing commands from a machine authenticated with github, crates.io and npm. all five channels are part of the release. release binaries are unsigned; macos notarization and windows authenticode are not configured.
+
 ## 0. prerequisites
 
 - crates.io publishing access and npm login as `archhaze24`; npm may request a one-time password.
@@ -24,7 +26,7 @@ git tag -s vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-the workflow checks the tag and changelog, runs checks and builds seven targets. tags containing `-` create prereleases. wait for success and check the 14 assets: seven archives and checksums. each archive contains the binary, `LICENSE`, `README.md`, `man/man1/` and `completions/`. if a build fails, fix it, delete the tag (`git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z`) and tag again. do not publish to crates.io or npm until this succeeds.
+the workflow checks the tag and changelog, runs checks and builds seven targets. tags containing `-` create prereleases. wait for success and check the 14 assets: seven archives and checksums. each archive contains the binary, `LICENSE`, `README.md`, `man/man1/` and `completions/`. if a build fails, resolve it before publishing packages.
 
 ## 3. crates.io
 

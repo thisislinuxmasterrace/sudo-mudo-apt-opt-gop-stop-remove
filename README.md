@@ -6,16 +6,33 @@ when you really want to nuke the shit out of some files
 
 **overwriting is best effort.** ssds, snapshots, copy-on-write filesystems and backups can keep old data. `--verify` checks the new contents, not whether every old copy is gone. [limits](docs/guarantees-and-limits.md).
 
-## build
+## install
 
-no release is published yet. build with rust 1.88 or newer:
+download a [release archive](https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases/tag/v0.1.0), or install with a package manager:
+
+```sh
+cargo install sudo-mudo-apt-opt-gop-stop-remove
+# or
+npm install -g sudo-mudo-apt-opt-gop-stop-remove
+# or, on macos and linux
+brew install archhaze24/tap/sudo-mudo-apt-opt-gop-stop-remove
+```
+
+on windows:
+
+```powershell
+scoop bucket add archhaze24 https://github.com/archhaze24/scoop-bucket
+scoop install sudo-mudo-apt-opt-gop-stop-remove
+```
+
+cargo needs rust 1.88 or newer. the package is `sudo-mudo-apt-opt-gop-stop-remove`; the binary is `mudo`. [platforms and setup](docs/distribution.md).
+
+## build from source
 
 ```sh
 cargo build --release
 sudo ./target/release/mudo apt opt gop stop remove --help
 ```
-
-the package is `sudo-mudo-apt-opt-gop-stop-remove`; the binary is `mudo`.
 
 ## use
 

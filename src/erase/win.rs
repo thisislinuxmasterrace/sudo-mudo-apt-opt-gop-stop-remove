@@ -201,10 +201,7 @@ fn erase_file(path: &Path, opts: &Options) -> io::Result<()> {
 
     match open_for_overwrite(path) {
         Ok(mut file) => {
-            // length from the open handle, not from a second lookup.
-            let meta = file.metadata()?;
-            check_hard_links(path, link_count(&meta) > 1, opts)?;
-            overwrite_in_place(&mut file, meta.len(), opts)?;
+            overwrite_open_file(path, &mut file, opts)?;
             drop(file);
             remove_entry(path, opts)
         }
@@ -230,8 +227,17 @@ fn no_holder_reason(err: &io::Error) -> &'static str {
 /// handles a file that another process holds open.
 #[cfg(windows)]
 fn erase_locked(path: &Path, opts: &Options, err: io::Error) -> io::Result<()> {
-    let len = fs::symlink_metadata(path)?.len();
     let listing = windows::holders(path);
+    erase_locked_with(path, opts, err, listing, windows::close_holders)
+}
+
+fn erase_locked_with(
+    path: &Path,
+    opts: &Options,
+    err: io::Error,
+    listing: io::Result<Vec<windows::Holder>>,
+    close_holders: impl FnOnce(&Path) -> io::Result<Vec<windows::Holder>>,
+) -> io::Result<()> {
     let holders = listing.as_deref().unwrap_or_default();
     for holder in holders {
         eprintln!(
@@ -254,11 +260,11 @@ fn erase_locked(path: &Path, opts: &Options, err: io::Error) -> io::Result<()> {
             "warning: closing {} process(es) may lose unsaved data and stop services",
             holders.len()
         );
-        windows::close_holders(path)?;
+        close_holders(path)?;
 
         match open_for_overwrite(path) {
             Ok(mut file) => {
-                overwrite_in_place(&mut file, len, opts)?;
+                overwrite_open_file(path, &mut file, opts)?;
                 drop(file);
                 return remove_entry(path, opts);
             }
@@ -297,6 +303,14 @@ fn erase_locked(path: &Path, opts: &Options, err: io::Error) -> io::Result<()> {
             io::Error::other(format!("{err}; could not list lock holders: {list_err}"))
         }
     })
+}
+
+#[cfg(windows)]
+fn overwrite_open_file(path: &Path, file: &mut File, opts: &Options) -> io::Result<()> {
+    // length from the open handle, not from a second lookup.
+    let meta = file.metadata()?;
+    check_hard_links(path, link_count(&meta) > 1, opts)?;
+    overwrite_in_place(file, meta.len(), opts)
 }
 
 /// overwrites a file in place. windows does not rename it first, so an interrupted overwrite leaves
@@ -409,6 +423,58 @@ fn unlink_with_random_name(path: &Path, is_dir: bool) -> io::Result<()> {
                     hidden.display()
                 ))),
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+
+    #[test]
+    fn retry_uses_size_after_holder_changes_file_before_closing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data");
+        let opts = Options {
+            passes: 1,
+            verbose: false,
+            force: true,
+            kill_holders: true,
+            allow_protected: false,
+            quiet: true,
+            verify: true,
+        };
+
+        for (before, after) in [(8, 4096), (4096, 8)] {
+            fs::write(&path, vec![42; before]).unwrap();
+            let mut observer = File::open(&path).unwrap();
+            let listing = Ok(vec![windows::Holder {
+                pid: 0,
+                name: "test holder".to_owned(),
+            }]);
+            erase_locked_with(
+                &path,
+                &opts,
+                io::Error::from_raw_os_error(32),
+                listing,
+                |path| {
+                    fs::write(path, vec![42; after])?;
+                    Ok(Vec::new())
+                },
+            )
+            .unwrap();
+
+            assert!(!path.exists());
+            let mut contents = Vec::new();
+            observer.read_to_end(&mut contents).unwrap();
+            assert_eq!(contents.len(), after);
+            let changed = if after > before {
+                &contents[before..]
+            } else {
+                &contents[..]
+            };
+            assert!(changed.iter().any(|&byte| byte != 42));
         }
     }
 }

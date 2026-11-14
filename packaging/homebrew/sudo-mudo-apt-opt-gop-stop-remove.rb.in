@@ -2,7 +2,7 @@
 # lives in the tap repo archhaze24/homebrew-tap as Formula/sudo-mudo-apt-opt-gop-stop-remove.rb.
 # linux uses the static musl builds, so no particular glibc is required.
 class SudoMudoAptOptGopStopRemove < Formula
-  desc "when you really want to delete something: best-effort file erasure with honest limits"
+  desc "when you really want to nuke the shit out of some files"
   homepage "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove"
   version "@VERSION@"
   license "MIT"

@@ -1,79 +1,48 @@
 # sudo-mudo-apt-opt-gop-stop-remove
 
-when you really want to delete something
+when you really want to nuke the shit out of some files
 
-a command-line tool for windows, macos and linux. it overwrites file contents before deleting files and can erase directory trees. it can also fill the free space of a volume (`--wipe-free`) and, on linux, overwrite a whole disk or partition.
+`mudo` hides file names, overwrites the contents, then deletes the files. it handles directory trees and free space too. linux block-device erasure is experimental.
 
-## what overwriting can and cannot do
+**overwriting is best effort.** ssds, snapshots, copy-on-write filesystems and backups can keep old data. `--verify` checks the new contents, not whether every old copy is gone. [limits](docs/guarantees-and-limits.md).
 
-file runs report an advisory verdict with reasons in the summary, dry-run json and log. `weak` means best effort; `cosmetic` means removing a link without overwriting its target. `effective` is reserved for proven conditions and is not issued automatically. directory entries describe metadata only; their visited children get separate assessments. see [assessment limits](docs/guarantees-and-limits.md#assessments).
+## build
 
-the tool overwrites through the filesystem. a hard disk with a filesystem that rewrites blocks in place (ext4, xfs, ntfs, fat) offers the best chance of replacing the original file data, but this tool does not prove that every copy is gone. on ssd and nvme drives, on copy-on-write filesystems (apfs, btrfs, zfs, refs), with journals, snapshots, backups, caches or remote storage, an older copy can survive where the tool cannot reach it. when the data matters, use full-disk encryption from the start, or the drive's own secure erase. details: [guarantees and limits](docs/guarantees-and-limits.md).
-
-status: version 0.1.0, early development. windows has been exercised in ci and in a limited windows 11 virtual machine test, not on real windows hardware. erasing devices on linux is experimental and not tested on real disks. the full list is in [guarantees and limits](docs/guarantees-and-limits.md#what-is-not-verified).
-
-## install
-
-there is no release yet. release archives, npm, homebrew and scoop are prepared and described in [distribution](docs/distribution.md), but nothing is published.
-
-build from source (rust 1.88 or newer):
+no release is published yet. build with rust 1.88 or newer:
 
 ```sh
-cargo build --release   # target/release/mudo
+cargo build --release
+sudo ./target/release/mudo apt opt gop stop remove --help
 ```
 
-## quick start
+the package name stays long; the executable is only `mudo`.
 
-the executable is `mudo`; the project and package names stay `sudo-mudo-apt-opt-gop-stop-remove`. every invocation requires literal `sudo` and the exact words `apt opt gop stop remove`, including help and version:
+## use
 
-```sh
-sudo mudo apt opt gop stop remove --help
-sudo mudo apt opt gop stop remove --version
-```
-
-on unix, sudo must run it as root. on windows, use native system `sudo.exe` from an elevated console on windows 11 24h2 or later, with uac and inline sudo enabled; the console alone is insufficient. the ordinary non-elevated uac handoff and launch modes whose sudo ancestry cannot be verified are refused. these checks prevent accidental use, not deliberate tampering. see [invocation rules](docs/usage.md#invocation).
+once `mudo` is on sudo's path:
 
 ```sh
-# look first, change nothing
+# inspect first
 sudo mudo apt opt gop stop remove --dry-run -r build/
 
-# look first and get advice for these paths, change nothing
-sudo mudo apt opt gop stop remove --explain notes.txt
-
-# erase a file; asks for confirmation
+# erase a file, after confirmation
 sudo mudo apt opt gop stop remove notes.txt
 
-# erase a tree, keeping some entries
-sudo mudo apt opt gop stop remove -r --exclude '*.lock' --exclude .git build/
-
-# scripts and cron have no terminal: -f asks no questions, -q hides progress
-sudo mudo apt opt gop stop remove -q -f -r /srv/scratch/old-run
-
-# paths from find, with a json lines record of what was done
-find build -name '*.tmp' -print0 | sudo mudo apt opt gop stop remove -f -0 --files-from - --log erase.jsonl
-
-# the free space of a volume, after the files are already deleted
-sudo mudo apt opt gop stop remove --dry-run --wipe-free /home
-sudo mudo apt opt gop stop remove --wipe-free /home
+# erase a tree, keeping .git
+sudo mudo apt opt gop stop remove -r --exclude .git old-project/
 ```
 
-the exit code tells what happened: 0 done, 1 refused before erasing, 2 bad arguments, 3 declined, 4 not finished. see the [reference](docs/reference.md#exit-codes).
+yes, `sudo` and all five words are required, even for `--help` and `--version`.
 
-## documentation
+on windows, use native system `sudo.exe` from an elevated console, with windows 11 24h2 or later, uac and inline sudo enabled. an admin console alone is insufficient. [setup](docs/usage.md#invocation).
 
-| page | content |
-| --- | --- |
-| [docs/usage.md](docs/usage.md) | erasing files and trees, confirmations, recipes, interrupts, locked files on windows |
-| [docs/safety.md](docs/safety.md) | what is refused and why: symlinks, protected paths, mount points, hard links, root |
-| [docs/guarantees-and-limits.md](docs/guarantees-and-limits.md) | what an overwrite does on each kind of storage, what `--verify` proves, what is not verified |
-| [docs/wipe-free.md](docs/wipe-free.md) | filling and clearing the free space of a volume |
-| [docs/devices.md](docs/devices.md) | erasing a whole disk or partition (linux) |
-| [docs/reference.md](docs/reference.md) | flags, exit codes, `--log` and `--dry-run --json` formats, `--files-from`, `--exclude` |
-| [docs/architecture.md](docs/architecture.md) | code map and invariants for contributors |
-| [docs/development.md](docs/development.md) | build, checks, tests, ci, msrv |
+`-f` skips questions, not protections. symlinks are removed without following their targets. protected paths and unix hard links still have safeguards. [safety](docs/safety.md).
 
-the full index is [docs/README.md](docs/README.md).
+## more
 
-## license
+- [usage](docs/usage.md): confirmation, scripts, interrupts and windows locks
+- [reference](docs/reference.md): flags, exit codes and json formats
+- [free-space wiping](docs/wipe-free.md) and [linux devices](docs/devices.md)
+- [all documentation](docs/README.md), including build and contribution notes
 
-copyright (c) 2026 kirill belolipetsky. mit license, see [LICENSE](LICENSE).
+[mit license](LICENSE).

@@ -1,6 +1,6 @@
 {
     "version": "@VERSION@",
-    "description": "when you really want to delete something: best-effort file erasure with honest limits",
+    "description": "when you really want to nuke the shit out of some files",
     "homepage": "https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove",
     "license": "MIT",
     "architecture": {

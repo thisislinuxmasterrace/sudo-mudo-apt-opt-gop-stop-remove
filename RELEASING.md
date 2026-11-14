@@ -1,15 +1,12 @@
 # releasing
 
-a release has four parts that go out in this order: the **github release** (archives, built by ci from a tag), **crates.io** (`cargo publish`), **npm** (wrapper packages assembled from the github release assets) and the **homebrew and scoop** files. package and archive names stay long; the executable is only `mudo`. ci only builds and creates the github release. everything else is done by hand from a machine that is logged in; ci holds no publishing secrets.
-
-replace `X.Y.Z` with the new version everywhere. for a prerelease use a semver prerelease version (`0.2.0-rc.1`, tag `v0.2.0-rc.1`).
+publish in order: github release, crates.io, npm, then homebrew and scoop. ci creates only the github release; publish the rest manually. replace `X.Y.Z` with the version (for example `0.2.0-rc.1` for a prerelease).
 
 ## 0. prerequisites
 
-- `cargo login` with a crates.io token that may publish new versions of this crate.
-- `npm login` as `archhaze24`. every `npm publish` may ask for a one-time password. the launcher package `sudo-mudo-apt-opt-gop-stop-remove` is unscoped; the seven platform packages live under the personal scope `@archhaze24/` because npm's spam filter rejects new unscoped platform names, and they need `--access public`.
-- node 18 or newer, `tar`, and `gh` (optional).
-- the tap repo `archhaze24/homebrew-tap` and the bucket repo `archhaze24/scoop-bucket` exist; they are shared with other tools of the same owner.
+- crates.io publishing access and npm login as `archhaze24`; npm may request a one-time password.
+- node 18 or newer and `tar`; `gh` is optional.
+- access to `archhaze24/homebrew-tap` and `archhaze24/scoop-bucket`.
 
 ## 1. prepare
 
@@ -18,7 +15,7 @@ replace `X.Y.Z` with the new version everywhere. for a prerelease use a semver p
 3. check the install section of `README.md`: it lists only channels that work after the release.
 4. run the checks: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, the non-device tests in an isolated machine using the [sudo test runner](docs/development.md#checks), the msrv check (`cargo +1.88.0 check --all-targets --locked`) and `cargo package --locked`.
 5. commit as `release: X.Y.Z`, push `main`, and wait until `ci` and `windows locks` are green.
-6. optional safety net: run the release workflow by hand on `main` (`gh workflow run release.yml --ref main`). it builds all seven targets, checks their archive checksums and renders the packaging templates without creating a release. a manual run checks the `Unreleased` notes, falling back to the cargo version's finalized notes when that section is empty. inspect the target artifacts and the `packaging-validation` artifact: its `v0.0.0-validation` version and urls are fixtures, not published release links. each target artifact contains an archive and its checksum; the archive contains the binary, `LICENSE`, `README.md`, `man/man1/` and `completions/`.
+6. optionally run `gh workflow run release.yml --ref main` to validate seven target archives and packaging without a release. inspect the artifacts; `packaging-validation` uses fixture versions and urls. manual runs check `Unreleased`, or the cargo version's notes if it is empty.
 
 ## 2. github release
 
@@ -27,9 +24,7 @@ git tag -s vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-the `release` workflow first checks that the tag, without the leading `v`, equals the version in `Cargo.toml` and that `CHANGELOG.md` has notes for it. then it runs clippy and the tests, generates the man page and the completions, builds seven targets (linux x86_64 and aarch64, each glibc and static musl; macos x86_64 and arm64; windows x86_64), and creates the release `vX.Y.Z`. a tag containing `-` is marked as a prerelease.
-
-wait until it is green and check that the release has 14 files: seven archives and seven `.sha256` files. each archive holds the binary, `LICENSE`, `README.md`, `man/man1/` and `completions/`. if a build fails, fix it, delete the tag (`git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z`) and tag again. nothing is published to crates.io or npm before this step succeeds.
+the workflow checks the tag and changelog, runs checks and builds seven targets. tags containing `-` create prereleases. wait for success and check the 14 assets: seven archives and checksums. each archive contains the binary, `LICENSE`, `README.md`, `man/man1/` and `completions/`. if a build fails, fix it, delete the tag (`git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z`) and tag again. do not publish to crates.io or npm until this succeeds.
 
 ## 3. crates.io
 
@@ -50,7 +45,7 @@ done
 (cd sudo-mudo-apt-opt-gop-stop-remove && npm publish --dry-run)
 ```
 
-publish the platform packages first and the launcher last, otherwise installs briefly fail. add `--tag next` to every `npm publish` of a prerelease, otherwise it becomes `latest`. `build.mjs` rejects malformed tags before replacing output. it wipes its `--out` directory: it refuses the repo root, its ancestors, the home directory, `/`, and a non-empty directory without the marker file it writes. after 72 hours a version can no longer be unpublished; use `npm deprecate` instead.
+publish the seven scoped platform packages with `--access public` first, then the unscoped launcher. add `--tag next` to every prerelease publication. `build.mjs` replaces its output directory and refuses unsafe or unmarked non-empty destinations. after 72 hours use `npm deprecate` instead of unpublishing.
 
 ## 5. verify
 
@@ -62,7 +57,7 @@ sudo mudo apt opt gop stop remove --version
 
 ## 6. homebrew and scoop
 
-the release workflow renders `sudo-mudo-apt-opt-gop-stop-remove.rb` and `sudo-mudo-apt-opt-gop-stop-remove.json` into the workflow artifact `packaging` (not a release asset). download it with `gh run download <run-id> -n packaging`, or render it yourself with `.github/scripts/render-packaging.sh vX.Y.Z`, which downloads the public `.sha256` files.
+download the workflow's `packaging` artifact with `gh run download <run-id> -n packaging`, or render it with `.github/scripts/render-packaging.sh vX.Y.Z`.
 
 copy the `.rb` file to `Formula/` in `archhaze24/homebrew-tap` and the `.json` file to `bucket/` in `archhaze24/scoop-bucket`, commit and push. check with `brew install archhaze24/tap/sudo-mudo-apt-opt-gop-stop-remove` and `scoop bucket add archhaze24 https://github.com/archhaze24/scoop-bucket && scoop install sudo-mudo-apt-opt-gop-stop-remove`. skip this step for a prerelease. the templates are in `packaging/`.
 

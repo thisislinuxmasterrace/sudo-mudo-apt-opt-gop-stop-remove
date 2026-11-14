@@ -1,98 +1,71 @@
 # guarantees and limits
 
-what an erase can and cannot do. the tool overwrites through the filesystem. in-place writes on a hard disk offer the best chance of replacing original data, but the tool does not prove that every copy is gone. encryption enabled before the data was written or the drive's own erase may be more appropriate; each has its own requirements.
-
-contents: [by kind of storage](#by-kind-of-storage) · [what `--verify` proves](#what---verify-proves) · [other limits](#other-limits) · [before selling or giving away a device](#before-selling-or-giving-away-a-device) · [what is not verified](#what-is-not-verified)
+mudo writes through the filesystem. it cannot reach every place that may hold old data, and it never certifies that a file is unrecoverable.
 
 ## by kind of storage
 
-| storage | what an overwrite does |
+| storage | what can survive |
 | --- | --- |
-| hard disk, filesystem that writes in place (ext4, xfs, ntfs, fat), no snapshots | may replace the blocks that held the data; the tool does not prove that no journal, cache, remapped block or other copy retains it |
-| ssd, nvme, other flash (usb sticks, sd cards) | wear leveling and remapped blocks send a write to a new physical block. the old block can stay readable until the drive reuses it, and the tool cannot reach it |
-| copy-on-write filesystem (apfs, btrfs, zfs, refs, bcachefs) | writes go to new blocks, so the old ones may keep the data. refs block cloning can also make files share clusters |
-| journaling | a journal can keep copies of the data |
-| snapshots and backups | keep older versions of the files. the tool does not reach them |
-| network, fuse, remote drives, unrecognized filesystems | the overwrite may happen on a server that keeps its own copies |
-| caches | the os or the drive may hold older data or defer writes |
+| hard disk with an in-place filesystem | journals, caches, remapped blocks and other copies |
+| ssd, nvme, usb flash, sd card | old physical blocks hidden by wear leveling and remapping |
+| copy-on-write: apfs, btrfs, zfs, refs, bcachefs | old blocks and shared clusters |
+| snapshots and backups | earlier versions outside the file being overwritten |
+| network or remote storage | server-side copies and snapshots |
 
-on these filesystems the tool prints a warning per path and carries on. warnings never block an erase:
+the tool warns about copy-on-write, network, fuse and unknown filesystems. flash warnings require linux and a known non-rotational device; no warning does not establish safe media. a file erase continues; [free-space wiping](wipe-free.md) refuses network, fuse and unknown filesystems.
 
-- copy-on-write: apfs, btrfs, zfs, refs, bcachefs.
-- network: nfs, smb, smb2, cifs, afpfs, smbfs, webdav, ceph, glusterfs, 9p, afs, coda, lustre.
-- fuse (`fuse`, `fuse.*`, `fuseblk`, `macfuse`, `osxfuse`), types the tool does not recognize, types it cannot read, and remote drives.
-- flash: on linux the tool reads sysfs `queue/rotational` and warns for non-rotational devices. partitions take their disk's answer; device-mapper and md take their slaves'. macos and windows are not detected, and an unknown answer adds nothing.
+each pass is synced before the next one. syncing does not make the drive overwrite its old physical blocks. on linux, sparse-file holes are skipped; unsupported range queries fall back to a whole-file overwrite. the byte estimate uses logical file sizes.
 
-each overwrite pass is synced with `fsync` before the next one starts. that pushes data to the filesystem's storage, not to the physical blocks the drive may have remapped.
-
-on linux, regular files use the kernel's reported data ranges and skip holes, preserving their logical length without allocating those holes. if range seeking is unsupported, the whole file is overwritten. holes do not expose old disk blocks, so skipping them does not reach previously freed blocks. the summary's byte count remains a logical upper estimate.
-
-for flash, copy-on-write and shared storage, use full-disk encryption (filevault, bitlocker, luks) enabled before the data was written, or the drive's own secure erase, and treat an overwrite as a courtesy.
+extra passes do not solve these limits.
 
 ## assessments
 
-ordinary file runs report `verdict`, `reasons` and `facts` separately from the operation result. `result: ok` means the operation succeeded, not that every copy disappeared.
+file runs report an operation result and a separate assessment:
 
-- `weak`: overwriting is best effort. reasons include flash, copy-on-write, network storage, an unknown medium or filesystem, and unchecked compression or snapshots.
-- `cosmetic`: removing a symbolic link does not overwrite its target. target storage is not inspected.
-- `effective`: reserved for proven rotational storage, a suitable filesystem and no interfering compression or snapshots. those conditions are not fully detected, so this version never issues it automatically.
+- `weak`: best effort, including unknown storage conditions.
+- `cosmetic`: a link was removed; its target was not overwritten.
+- `effective`: reserved. this version never issues it automatically.
 
-each visited child gets its own storage facts; a directory's assessment concerns its metadata only and does not certify its descendants. skipped, excluded, refused and unreadable entries limit coverage. dry-run json reports `assessment_coverage: incomplete` when any such entries exist; `visited_entries` otherwise describes only the entries inspected, never backups or other copies.
+`result: ok` means the operation succeeded, not that every old copy disappeared. directories are assessed as metadata; visited children get their own records. skipped, excluded, refused or unreadable entries produce `assessment_coverage: incomplete` in dry-run json. `visited_entries` covers only inspected entries.
 
-filesystem and medium facts are advisory observations collected before rename or deletion. they do not replace identity checks or authorize an erase. snapshots remain `unknown`: there is no snapshot scan in this version. device and free-space runs keep their existing reports.
+facts are advisory, collected before rename or deletion. they never authorize an erase or replace identity checks:
 
-compression is read from the mount line on linux. `enabled` means the mount options turn it on (`compress` or `compress=<algorithm>` or `compress-force=<algorithm>` on btrfs), for some or all files: new data may then land in smaller extents than the old data. `not_supported` means the filesystem has no transparent compression at all (ext2, ext3, ext4, xfs, vfat, msdos, exfat, jfs, reiserfs, minix). everything else is `unknown`, including btrfs without the option, because btrfs can also compress through a per-file or per-directory property, f2fs (its mount line does not show whether any file is compressed), zfs (the property is not on the mount line), ntfs and other platforms. the verdict stays `weak` in every case.
+- linux detects rotational media through sysfs; other platforms leave media unknown.
+- filesystem names are queried where supported. failures leave facts unknown.
+- linux compression facts come from mount options, not individual files. missing options do not prove compression is off.
+- linux detects dm-crypt and ecryptfs. `none_detected` does not prove plaintext; fscrypt, self-encrypting drives and some underlying storage are not detected. other platforms are unchecked.
+- snapshots remain unknown.
+- nearby git work trees, known sync/trash folders and editor backups are listed as possible copies, never erased. `none_found` is not a backup search.
 
-encryption is a fact, never a verdict. on linux the tool reads sysfs for the device under the path and reports `dm_crypt` when that device, or one below it (lvm on luks, for example), is a dm-crypt mapping, and `ecryptfs` for an ecryptfs mount. dm-verity and dm-integrity mappings are not counted as encryption. `none_detected` means neither was found, not that the data is unencrypted: fscrypt, self-encrypting drives, encryption above the filesystem (an encrypted archive or container file), a loop device whose backing file is on an encrypted volume, and members of a multi-device btrfs beyond the first are not detected. `not_checked` means the device behind the path could not be read or is too deep a stack to follow, the filesystem has no block device behind it (tmpfs, overlay, network), the object is a link or special file, or the platform is not linux (filevault and bitlocker are not looked for). on an encrypted volume what makes data unreadable is destroying every copy of the key, and an overwrite of one file only reaches the encrypted blocks, so the verdict stays `weak`.
-
-other copies are looked for in four places only, by path and without reading file contents: a git work tree (a `.git` entry in the directory or one of its parents), a sync folder (dropbox, onedrive, google drive, icloud, nextcloud, owncloud, or a folder with a syncthing `.stfolder`), a trash folder, and editor backup or swap files next to a file (`name~`, `.name.swp`, `.name.swo`, `name.bak`, `name.orig`, `#name#`, `.#name`). a copy that is found is only listed. it is never erased, and the tool does not know whether the file is tracked or synced. `none_found` means nothing turned up in those places, not that no other copy exists: backups, snapshots, other machines and earlier file versions are not searched. links and special objects are not looked at.
-
-linux binds storage observations to an open descriptor with checked identity. macos reads the filesystem type through a checked descriptor when opening succeeds; its medium stays unknown. windows reads the filesystem type and metadata from the same no-follow handle when it can open a regular file or directory; reparse points and failed queries leave it unknown. windows medium, compression and encryption remain unknown or unchecked. other platforms leave storage facts unknown. the existing storage warnings remain separate.
+see [reference](reference.md#dry-run-json) for fields. device and free-space runs use their own reports.
 
 ## what `--verify` proves
 
-`--verify` reads each file back after its last overwrite pass and compares it with what that pass wrote. the last pass writes pseudo-random bytes made from a 32-byte seed taken from the system generator for each file. the seed lives in memory for one erase and is never written to disk. the generator is not cryptographic: erasing only needs bytes that differ from the old contents.
+`--verify` reads the file after its final synced pass and compares it with the new bytes. a match proves only that the filesystem returned those bytes at that moment. it does not inspect earlier passes, remapped blocks, snapshots or backups. a log is not an erasure certificate either.
 
-for sparse files, verification reads the entire logical length, checks the written ranges and expects zeros in holes. its read cost therefore follows the logical size even when much less was overwritten.
+the final pattern comes from a per-file random seed held in memory; the generator is not cryptographic. sparse-file verification reads the whole logical length, including holes. linux requests a cache drop with `posix_fadvise(DONTNEED)`; macos does not drop the cache.
 
-what a match proves: the filesystem returned the new bytes for that file at that moment.
-
-what it does not prove:
-
-- that the old data is gone from the device. ssd remapped blocks, copy-on-write filesystems, caches, snapshots and server-side copies can keep an older copy that the read cannot see.
-- that earlier passes were written. only the last pass is read back, once, after it is synced.
-- on linux the kernel's cache for the file is dropped first (`posix_fadvise(DONTNEED)`, a hint). on macos the cache is not dropped, so the check is weaker there.
-
-a `--log` record, with or without `--verify`, says what the tool did, not that the data is unrecoverable. do not hand it over as a certificate of erasure for ssd, nvme or copy-on-write storage.
-
-a mismatch keeps the file under its name, prints `verify failed: contents differ after the last pass, the file is kept` and ends the run with exit code 4; the other paths still go on. the file is opened for reading too, so the owner's read bit is added when it is missing, and a kept file keeps that bit. `--verify` is refused for devices (code 1) and with `--wipe-free` (code 2). with `--dry-run` it is ignored.
+a mismatch keeps the file under its name and returns exit 4; other paths continue. verification adds the owner's read permission, which a kept file retains. it is refused for devices (exit 1), conflicts with `--wipe-free` (exit 2), and is ignored in a dry run.
 
 ## other limits
 
-- **ntfs streams and compression**: only the default data stream is overwritten. an open alternate-stream observer on windows 11 still read the original bytes after the ordinary file was erased. alternate streams, such as the zone identifier windows adds to downloads, are outside the overwrite coverage. compressed files may be rewritten to new clusters, so old data can survive (compression is not tested on windows).
-- **interrupted erase**: a file can be left half overwritten. see [usage](usage.md#interrupts).
-- **hard links**: other names lose their content too, and root refuses them by default. see [safety](safety.md#hard-links).
-- **directory with a read-only parent**: a directory whose parent cannot be modified is not removed. its contents are erased first and the error is reported.
-- **bsd** (not linux, macos or windows): the filesystem type is not determined, so erase only warns and `--wipe-free` refuses.
-- **the log holds names**: the `--log` file lists the names that were erased (mode 0600 on unix) and stays after the run. see [reference](reference.md#log-format).
+- **ntfs streams:** only the default data stream is overwritten. a windows alternate-stream observer retained the original bytes after file erasure.
+- **compression:** rewritten data may occupy new clusters, leaving old ones behind.
+- **interrupts:** a file may be partly overwritten. a second signal or abrupt stop can leave its hidden name. see [interrupts](usage.md#interrupts).
+- **hard links:** names share data. unix refuses them under root unless explicitly overridden. see [safety](safety.md#hard-links).
+- **read-only parent:** contents may be erased even when their directory cannot be removed.
+- **logs:** record paths, not contents. unix logs use mode 0600 and remain after erasure.
 
 ## before selling or giving away a device
 
-erasing files does not guarantee that their data is gone from the device. snapshots, backups, remapped blocks and journals are outside the tool's reach, and `--wipe-free` writes only through the filesystem, so it has the same limits.
+deleting files or filling free space is not a whole-device sanitization method. consider encryption enabled before sensitive data was written, or the drive's own erase procedure. cryptographic erasure requires removing every usable key copy.
 
-on linux the tool can overwrite a whole hard disk or partition ([devices](devices.md)). it refuses ssds, does not use the drive's own erase commands, and does not touch space outside the device it is given. for a disk that leaves your hands, consider an external tool:
-
-- `nwipe` (linux) or ShredOS (a bootable image) wipe whole disks; check their documentation for what they do on your drive.
-- the drive's own secure erase, through the vendor's tool.
-- on macos, filevault enabled before the data was written, instead of overwriting.
+[linux device mode](devices.md) overwrites the named disk or partition, not space outside it. it is experimental, refuses ssds by default and does not use drive-level erase commands.
 
 ## what is not verified
 
-- recursive walks depend on the process stack and open-file limits. a 1000-level tree passed on linux with an 8 mib stack; a 160-level tree aborted with a deliberately reduced 256 kib stack. unlimited nesting is not supported. an open-file-limit error is reported, but stack exhaustion can abort the process before normal cleanup.
-- windows runtime coverage includes hosted ci lock, unicode, verification, logging, junction and custom reparse-point scenarios. isolated windows 11 checks also covered lock holders, access-denied refusal, an open alternate-stream observer, initial console cancellation and blocked-input cancellation during a holder question. a disposable sentinel scheduled through the reboot-deletion api disappeared after reboot; the complete interactive reboot-deletion flow remains unverified. these checks are not real hardware evidence. antivirus, cloud providers, refs, compressed ntfs, log identity and volume mount points remain unverified.
-- erasing devices on linux has not been tested on real disks, usb or partitions. ci runs unit tests of the device functions and the refusal tests; it never erases a real device. macos and windows devices are not implemented.
-- macos bind mounts (bindfs, nullfs) are found through `getmntinfo` but have not been tried on real hardware; the script `tests/manual/macos_bind_mount.sh` has not been run. fail-closed behaviour when `getmntinfo` fails is unchecked on hardware.
-- refs detection has not been tried on a real refs volume. `fuseblk` (ntfs-3g) is refused by `--wipe-free` by type and has not been tried on a real mount.
-- the progress line on a real terminal has been checked only without a tty.
-- `--verify` speed is not measured.
-- bsd systems have not been tried.
+windows checks cover hosted ci and an isolated windows 11 vm: locks, verification/logging, reparse points, cancellation and disposable fat32 volumes. a reboot-deletion sentinel disappeared after reboot; the complete interactive reboot fallback remains unverified. these are not hardware tests.
+
+still unverified: real block-device erasure; antivirus/cloud-provider behavior; refs and compressed ntfs; windows log identity and volume mount points; macos bind mounts and mount-query failures on hardware; bsd; real-terminal progress and verification throughput.
+
+recursive walks have finite stack and descriptor limits. descriptor errors are reported, but stack exhaustion can abort before cleanup. unlimited nesting is not supported.

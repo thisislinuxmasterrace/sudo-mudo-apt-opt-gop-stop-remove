@@ -1,7 +1,7 @@
 {
   "name": "sudo-mudo-apt-opt-gop-stop-remove",
   "version": "0.0.0-template",
-  "description": "when you really want to delete something: best-effort file erasure with honest limits",
+  "description": "when you really want to nuke the shit out of some files",
   "keywords": ["erase", "shred", "secure-delete", "overwrite", "wipe", "cli"],
   "license": "MIT",
   "author": "archhaze24",

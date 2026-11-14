@@ -2,8 +2,6 @@
 
 every flag, exit code and file format. `sudo mudo apt opt gop stop remove --help` is the authoritative flag list; this page follows it.
 
-contents: [flags](#flags) · [exit codes](#exit-codes) · [exclude globs](#exclude-globs) · [path lists](#path-lists) · [log format](#log-format) · [dry-run json](#dry-run-json) · [progress](#progress) · [man page and completions](#man-page-and-completions)
-
 ## flags
 
 usage: `sudo mudo apt opt gop stop remove [OPTIONS] [PATHS]...`
@@ -43,7 +41,7 @@ combinations that are argument errors (exit code 2): `--json` without `--dry-run
 | 4 | not finished: at least one path was not erased (including a mount point skipped inside a tree, a hard-linked file under root found inside a tree, a declined reboot-deletion or lock-holder question, and `-f` leaving a locked file), a log line could not be written, a `--verify` mismatch, `--wipe-free` wrote nothing or failed, or the erase was interrupted (`interrupted:` is printed) |
 | 130 | a second ctrl+c, sigterm or sighup: the tool exits at once without restoring the name of the file being erased |
 
-with `-f` there is no question, so code 3 cannot come from a declined question. a signal that arrives while a question is open is not caught: it kills the process and the tool has no exit code for it.
+with `-f` there is no question, so code 3 cannot come from a declined question. signals before erasure use default handling. windows questions during an erase are interruptible; a native sudo wrapper can return its own console-termination status. see [interrupts](usage.md#interrupts).
 
 ## exclude globs
 

@@ -2,8 +2,6 @@
 
 `--wipe-free <dir>` overwrites the free blocks of the filesystem that holds `<dir>`, so data deleted earlier is harder to recover from unused space. it does not touch any existing file.
 
-contents: [how it works](#how-it-works) · [what it refuses](#what-it-refuses) · [limits](#limits) · [flags](#flags)
-
 ```sh
 sudo mudo apt opt gop stop remove --dry-run --wipe-free /home    # shows the space it would fill
 sudo mudo apt opt gop stop remove --wipe-free /home -n 3
@@ -11,9 +9,7 @@ sudo mudo apt opt gop stop remove --wipe-free /home -n 3
 
 ## how it works
 
-each pass creates temporary files in `<dir>`, writes one pattern (zeros, ones, random; the last pass is random) into new blocks until the volume is full, then removes them. on unix, a filesystem with a file size limit, such as fat32, gets several files per pass. on windows fat32, each file stops one mib below 4 gib and the pass continues with another file: windows otherwise reports disk full at the per-file limit even when space remains. other windows file-size limits are not handled separately.
-the files stay open until the pass ends, keeping their blocks allocated while the next file is filled.
-each retained file uses an open handle. if the process reaches its open-file limit before the volume is full, the run fails and releases the temporary files; it does not report a completed wipe.
+each pass fills temporary files until the volume is full, then removes them. patterns cycle through zeros, ones and random; the last pass is random. files stay open to retain their blocks. reaching the open-file limit fails the run and releases them. unix rolls over at filesystem file-size limits; windows fat32 rolls over one mib below 4 gib. other windows file-size limits are not handled separately.
 
 - nothing in `<dir>` is changed. the temporary files are unlinked on unix and deleted on close on windows, so a killed process leaves nothing behind.
 - the dry run and the prompt show the reported available space. unix invocations require root and can also fill filesystem-reserved blocks (ext4 reserves 5% by default), so actual writes may exceed that estimate. if nothing could be written, the run fails with a message (exit code 4).
@@ -35,10 +31,9 @@ copy-on-write filesystems (apfs, btrfs, zfs, refs, bcachefs) are allowed with a 
 
 writing through the filesystem reaches only the blocks allocated to the temporary files. a full pass does not prove that every old copy is gone, even on a hard disk:
 
-- ssd and nvme: remapped blocks and over-provisioned space are never offered to the filesystem, so they are not written. a full volume does not mean every physical cell was overwritten.
-- copy-on-write filesystems may place the fill in new blocks while older ones keep the data.
-- snapshots and copies the filesystem keeps are not free space and are not reached.
-- journals, backups and caches can keep copies too.
+- ssd and nvme remapped blocks and over-provisioned space are not offered to the filesystem.
+- copy-on-write may place the fill in new blocks, leaving old data.
+- snapshots, journals, backups and caches can retain copies outside free space.
 
 the general picture is in [guarantees and limits](guarantees-and-limits.md#by-kind-of-storage). for drives that leave your hands, use encryption or the drive's own erase.
 

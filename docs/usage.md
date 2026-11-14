@@ -1,14 +1,10 @@
 # usage
 
-how to erase files and trees. flags are listed in the [reference](reference.md#flags); what the tool refuses is in [safety](safety.md); what an erase does and does not guarantee is in [guarantees and limits](guarantees-and-limits.md).
-
-contents: [what an erase does](#what-an-erase-does) · [before anything is erased](#before-anything-is-erased) · [confirmation](#confirmation) · [trees](#trees) · [recipes](#recipes) · [in scripts](#in-scripts) · [interrupts](#interrupts) · [locked files on windows](#locked-files-on-windows)
-
-the executable is `mudo`; the package name stays `sudo-mudo-apt-opt-gop-stop-remove`.
+for flags, refusals and limits, see [reference](reference.md#flags), [safety](safety.md) and [guarantees and limits](guarantees-and-limits.md).
 
 ## invocation
 
-every command requires `sudo mudo apt opt gop stop remove`, with the five words in that exact order. put options after `remove`. missing, reordered or misspelled words are refused before any erase. help and version follow the same rule:
+every command, including help and version, requires `sudo mudo apt opt gop stop remove` in that order. put options after `remove`:
 
 ```sh
 sudo mudo apt opt gop stop remove --help
@@ -17,19 +13,13 @@ sudo mudo apt opt gop stop remove --version
 
 unix requires root plus sudo's user markers, checked against the account database. a root shell alone is insufficient. both the invoking user's home and the elevated home stay protected. ordinary unix runs therefore use the root hard-link refusal too.
 
-windows requires elevation and an ancestor whose image is the native system `sudo.exe`, including when a node launcher sits between them. use windows 11 24h2 or later, enabled uac and inline sudo (`sudo config --enable normal` in an elevated console). start an elevated console, then still type `sudo mudo apt opt gop stop remove ...`. this mode keeps native sudo alive as the parent. the ordinary non-elevated uac handoff can lose that parent and is refused, as is new-window mode. inline sudo allows input from the originating console; review [microsoft's security considerations](https://learn.microsoft.com/en-us/windows/advanced-settings/sudo/#security-considerations) before enabling it. an administrator shell alone, third-party sudo replacements and launches whose ancestry cannot be read are refused.
+on windows 11 24h2 or later, enable uac and inline sudo (`sudo config --enable normal` in an elevated console). from an elevated console, run `sudo mudo apt opt gop stop remove ...`. native system `sudo.exe` must be an ancestor, including through a node launcher. an administrator shell alone, third-party sudo, new-window mode and unverifiable ancestry are refused; the ordinary non-elevated uac handoff can also lose the required parent. review [microsoft's security considerations](https://learn.microsoft.com/en-us/windows/advanced-settings/sudo/#security-considerations) for inline sudo.
 
 the invocation check is a cooperative guard against mistakes, not an authentication or security boundary.
 
 ## what an erase does
 
-for each file the tool:
-
-1. renames it to a random hidden name in the same directory (`.` followed by 16 hex digits). on unix it also checks that the renamed entry is still the same file, and a file that cannot be removed is refused before its contents are touched.
-2. overwrites the contents. `-n` sets the number of passes, default 1. passes run in the order zeros, ones, random, and repeat; the last pass is always random. extra passes only add wear: on flash, copy-on-write and compressing filesystems they do not make the erase more reliable.
-3. deletes it.
-
-a symbolic link is removed as a link and never followed, so its target is untouched. read-only files and directories, and entries the owner cannot access at all, are made accessible to their owner first.
+each file is renamed to a random hidden name, overwritten, then deleted. on unix its identity is checked after the rename and a file that cannot be removed is refused before overwrite. `-n` sets the passes (default 1): zeros, ones, random, repeating, with a random last pass. extra passes add wear without making flash, copy-on-write or compressed storage more reliable. symlinks are removed without following them; inaccessible and read-only entries are made accessible to their owner first.
 
 ```sh
 sudo mudo apt opt gop stop remove venom.exe             # one pass
@@ -43,18 +33,11 @@ sudo mudo apt opt gop stop remove --verify -f notes.txt # read the last pass bac
 
 every path is validated first. one refused path aborts the whole run with exit code 1 before anything is touched.
 
-then the tool prints a note that overwriting does not guarantee erasure (once per run, also with `-f`) and a summary of what it will touch: files, directories, links, total size, hard-linked files, skipped mount points, excluded entries, special files (refused) and entries it could not read. then it asks (see below).
+the tool warns that overwriting does not guarantee erasure, including with `-f`. it summarizes files, directories, links, size, hard links, skipped mounts, exclusions, special files and unreadable entries, then asks for confirmation.
 
-`--dry-run` prints the same summary and changes nothing:
+`--dry-run` prints the summary without changes. the text shows up to 20 entry assessments; `--dry-run --json` includes all inspected entries. directory metadata and children are assessed separately; skipped or unreadable entries limit coverage. see [assessments](guarantees-and-limits.md#assessments).
 
-```text
-would erase build (1 passes)
-  ...summary lines...
-```
-
-the text summary shows up to 20 entry assessments; `--dry-run --json` includes all inspected entries. directory metadata and child entries are assessed separately. skipped, excluded, refused, special or unreadable entries limit coverage; see [assessments](guarantees-and-limits.md#assessments).
-
-`--explain` does a dry run and then prints advice for the paths. each condition found (flash storage, an unknown medium, a copy-on-write, network or fuse filesystem, a symbolic link, a git work tree, sync folder, trash folder or editor backups) gets one line, with commands that would help. the commands are printed and never run, and the text does not claim that data is unrecoverable. it asks nothing and erases nothing. for a device it only shows the dry run, and it does not combine with `--json` or `--wipe-free`.
+`--explain` adds advice to a dry run; commands are printed, never run. it detects storage concerns, links and some possible copies (see [assessments](guarantees-and-limits.md#assessments)). for a device it only shows the dry run. it cannot be combined with `--json` or `--wipe-free`.
 
 with `-f` and no `--dry-run` the preliminary summary is not shown and the tree is not counted. assessments are collected during the erase walk and printed on stderr, without another walk or question.
 
@@ -62,7 +45,7 @@ with `-f` and no `--dry-run` the preliminary summary is not shown and the tree i
 
 without `-f` the tool lists the first 20 paths (then `... and N more`) and asks for `y` or `yes`. anything else, or no input, ends the run with exit code 3 and `aborted, nothing was erased.`
 
-with `-r`, a path with more than 1000 objects (files, directories and links) or more than 10 GiB is not confirmed with `y`. its last name component must be typed instead, exactly as named, so a mistyped command is less likely to erase a big tree.
+with `-r`, a path over 1000 objects or 10 GiB requires its exact last name component instead of `y`.
 
 - the limits are checked for each path. when only the whole run is above them, the path with the most objects is asked.
 - when not every path is named, `continue?` follows.
@@ -82,33 +65,14 @@ a directory needs `-r`. the tool walks it depth-first and erases the contents be
 
 ## recipes
 
-secret files (`.env`, keys, dumps): look first, then erase.
-
-```sh
-sudo mudo apt opt gop stop remove --dry-run .env id_ed25519 dump.sql
-sudo mudo apt opt gop stop remove .env id_ed25519 dump.sql
-```
-
-a build directory, keeping what you want to keep:
-
-```sh
-sudo mudo apt opt gop stop remove -r --exclude '*.lock' --exclude .git build/
-```
-
-a list of paths from `find`. a list on stdin needs `-f` (the question would also read stdin), so check the plan with a dry run first:
+a list from stdin needs `-f`, because confirmation also reads stdin. preview it first:
 
 ```sh
 find build -name '*.tmp' -print0 | sudo mudo apt opt gop stop remove --dry-run --json -0 --files-from - | jq .objects
 find build -name '*.tmp' -print0 | sudo mudo apt opt gop stop remove -f -0 --files-from -
 ```
 
-a record of what was erased, for handing over a machine or a directory. a record is not proof of erasure: see [guarantees and limits](guarantees-and-limits.md#what---verify-proves).
-
-```sh
-sudo mudo apt opt gop stop remove -r --log erase-$(date +%F).jsonl old-project/
-```
-
-old data in the unused space of a volume: see [wipe-free](wipe-free.md).
+for unused volume space, see [wipe-free](wipe-free.md). a [log](reference.md#log-format) is a record, not proof of erasure.
 
 ## in scripts
 

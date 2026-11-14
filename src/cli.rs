@@ -16,7 +16,7 @@ examples:
 
 exit codes: 0 done, 1 refused before erasing, 2 bad arguments, 3 declined, 4 not finished, 130 second ctrl+c.";
 
-/// irreversibly erase files: overwrite their contents, then delete them.
+/// when you really want to nuke the shit out of some files
 #[derive(Debug, Parser)]
 #[command(version, about, after_help = EXAMPLES)]
 pub struct Cli {

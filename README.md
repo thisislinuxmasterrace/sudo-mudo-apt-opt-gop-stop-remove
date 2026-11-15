@@ -18,7 +18,7 @@ npm install -g sudo-mudo-apt-opt-gop-stop-remove
 brew install archhaze24/tap/sudo-mudo-apt-opt-gop-stop-remove
 ```
 
-on windows:
+on windows (🤮🤮🤮):
 
 ```powershell
 scoop bucket add archhaze24 https://github.com/archhaze24/scoop-bucket

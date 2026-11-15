@@ -75,6 +75,10 @@ pub struct Cli {
     )]
     pub passes: u32,
 
+    /// add one final zero pass after the requested passes; does not improve erasure guarantees
+    #[arg(long)]
+    pub zero: bool,
+
     /// only show what would be erased, change nothing
     #[arg(long)]
     pub dry_run: bool,
@@ -82,7 +86,8 @@ pub struct Cli {
     /// like --dry-run, and also explain what an overwrite can and cannot do for these paths
     ///
     /// the advice comes from the same facts as the assessments: storage medium, filesystem and other
-    /// copies. commands that would help are printed, never run. nothing is erased.
+    /// copies. read-only git and snapshot tools may gather facts; suggested erase commands are printed,
+    /// never run. nothing is erased.
     #[arg(long, conflicts_with_all = ["wipe_free", "json"])]
     pub explain: bool,
 

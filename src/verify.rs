@@ -21,10 +21,17 @@ const GAMMA: u64 = 0x9E37_79B9_7F4A_7C15;
 /// never written anywhere.
 pub struct Expected {
     key: [u64; 4],
+    zero: bool,
 }
 
 impl Expected {
-    pub fn new() -> Self {
+    pub fn new(zero: bool) -> Self {
+        if zero {
+            return Self {
+                key: [0; 4],
+                zero: true,
+            };
+        }
         let mut seed = [0u8; SEED_LEN];
         rand::rng().fill_bytes(&mut seed);
         Self::from_seed(seed)
@@ -36,11 +43,15 @@ impl Expected {
         for (word, bytes) in key.iter_mut().zip(words) {
             *word = u64::from_le_bytes(*bytes);
         }
-        Self { key }
+        Self { key, zero: false }
     }
 
     /// fills `buf` with the bytes at file offsets `offset..offset + buf.len()`.
     pub fn fill_at(&self, offset: u64, buf: &mut [u8]) {
+        if self.zero {
+            buf.fill(0);
+            return;
+        }
         let mut position = offset;
         let mut done = 0;
         while done < buf.len() {

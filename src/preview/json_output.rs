@@ -5,7 +5,9 @@ use std::path::PathBuf;
 /// the dry-run summary as one line of json, for `--dry-run --json`. `paths` are the normalized paths
 /// the run would erase, and `total` is their sum.
 pub fn to_json(paths: &[PathBuf], passes: u32, total: &Summary) -> String {
-    let mut out = String::from("{\"paths\":[");
+    let mut out = String::from("{");
+    json::push_schema_version(&mut out);
+    out.push_str("\"paths\":[");
     for (index, path) in paths.iter().enumerate() {
         if index > 0 {
             out.push(',');

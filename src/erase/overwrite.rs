@@ -9,7 +9,7 @@ use crate::verify::Expected;
 
 use super::Options;
 use super::interrupt::check_interrupted;
-use super::pattern::{Pattern, fill, pattern_for_pass};
+use super::pattern::{Pattern, fill};
 
 /// size of the buffer used for each write, in bytes.
 const BUFFER_SIZE: usize = 1024 * 1024;
@@ -38,7 +38,7 @@ fn overwrite_passes(
 ) -> io::Result<()> {
     let mut buf = vec![0u8; BUFFER_SIZE];
     for pass in 0..opts.passes {
-        let pattern = pattern_for_pass(pass, opts.passes);
+        let pattern = opts.pattern(pass);
         if opts.verbose {
             progress.finish();
             crate::ui::message!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());

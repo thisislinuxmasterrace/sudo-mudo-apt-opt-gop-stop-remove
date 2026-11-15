@@ -16,6 +16,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `src/confirm.rs`, `prompt.rs` | confirmations and prompts |
 | `src/preview/`, `preview.rs`, `assessment.rs`, `assessment/` | summaries, json and per-entry assessments |
 | `src/explain.rs`, `copies.rs` | advice and possible copies |
+| `src/advisory.rs`, `copies/git.rs`, `snapshots.rs` | bounded read-only tool lookups for explicit explanations |
 | `src/safety.rs`, `storage/`, `entry.rs` | path protection, storage facts and windows reparse classification |
 | `src/erase/`, `verify.rs` | file and tree erasure, read-back verification |
 | `src/wipe.rs`, `device/` | free-space and linux device erasure |
@@ -24,6 +25,8 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `src/platform/` | windows restart manager, posix delete and reboot deletion |
 
 `src/erase/` separates unix descriptor-based and windows path-based walks, mount and hard-link checks, overwrite patterns, sparse ranges, interrupts and reports. its tests include unix entry substitution through test-only hooks.
+
+`erase/streams.rs` enumerates windows named data streams, opens them before writing and compares their file identities with the main stream. directory streams are refused. recursive walks share a 64-level bound; unix hard-link inventory encounters this bound before content erasure.
 
 ## data flow
 
@@ -50,7 +53,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 - anything that cannot be read fails closed: the mount table, sysfs for devices, the filesystem type for `--wipe-free`.
 - a protected-path comparison on unix is by `(dev, ino)`, not by spelling. `is_system_protected` reads no environment variable on unix.
 - `--log` is created with `create_new`, flushed per line, and a failed write stops the erase.
-- the last pass is always random, and `--verify` can reproduce it from a seed held in memory only.
+- the requested pass sequence ends with random data; `--zero` adds one final zero pass. `--verify` reproduces the final bytes from a seed held in memory or checks zeros.
 - no `unwrap()` or `expect()` outside tests; every `unsafe` block carries a `// safety:` comment.
 
 ## where each concern lives

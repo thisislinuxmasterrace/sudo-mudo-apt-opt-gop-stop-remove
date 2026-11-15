@@ -9,6 +9,8 @@ use crate::erase::Options;
 use crate::{EXIT_INVALID, NAME};
 
 #[cfg(target_os = "linux")]
+mod advice;
+#[cfg(target_os = "linux")]
 mod linux;
 
 /// true when the paths name devices. a run that mixes devices with other paths is refused, and so is a

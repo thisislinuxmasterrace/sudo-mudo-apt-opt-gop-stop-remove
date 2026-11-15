@@ -140,6 +140,14 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
             for line in explain::advice(&total.assessments) {
                 crate::ui::stdout_line(format_args!("{line}"));
             }
+            for path in paths {
+                if let Some(line) = crate::copies::git::explain(path) {
+                    crate::ui::stdout_line(format_args!("{line}"));
+                }
+                if let Some(line) = crate::snapshots::explain(path) {
+                    crate::ui::stdout_line(format_args!("{line}"));
+                }
+            }
         }
         return ExitCode::SUCCESS;
     }

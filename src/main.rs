@@ -1,5 +1,6 @@
 //! entry point: parses arguments, normalizes the paths and dispatches to an erase, a device erase or `--wipe-free`.
 
+mod advisory;
 mod assessment;
 mod cli;
 mod confirm;
@@ -18,6 +19,7 @@ mod progress;
 mod prompt;
 mod run;
 mod safety;
+mod snapshots;
 mod storage;
 mod ui;
 mod verify;
@@ -46,6 +48,13 @@ fn main() -> ExitCode {
     let mut cli = cli::parse();
     // an explanation changes nothing, so every later step treats it as a dry run.
     cli.dry_run |= cli.explain;
+    if cli.zero {
+        let Some(passes) = cli.passes.checked_add(1) else {
+            crate::ui::message!("{NAME}: --zero needs room for one extra pass; reduce --passes");
+            return ExitCode::from(EXIT_ARGS);
+        };
+        cli.passes = passes;
+    }
 
     if !cfg!(windows) && cli.kill_holders {
         crate::ui::message!("{NAME}: --kill-holders is only supported on windows");
@@ -62,6 +71,7 @@ fn main() -> ExitCode {
 
     let opts = erase::Options {
         passes: cli.passes,
+        zero: cli.zero,
         verbose: cli.verbose,
         force: cli.force,
         kill_holders: cli.kill_holders,

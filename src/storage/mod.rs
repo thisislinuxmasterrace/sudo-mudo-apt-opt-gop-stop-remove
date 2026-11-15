@@ -14,12 +14,15 @@ pub(crate) use compression::detect as assessment_compression;
 pub(crate) use crypt::Encryption;
 #[cfg(target_os = "linux")]
 pub(crate) use crypt::detect as assessment_encryption;
+#[cfg(target_os = "linux")]
+pub(crate) use crypt::encrypted_file;
 use flash::is_flash;
 #[cfg(target_os = "linux")]
 pub(crate) use flash::medium as assessment_medium;
 #[cfg(any(target_os = "linux", windows))]
 pub(crate) use fs_name::filesystem_name as assessment_filesystem;
-use fs_name::{filesystem_name, remote_drive};
+pub(crate) use fs_name::filesystem_name;
+use fs_name::remote_drive;
 pub use space::available_bytes;
 
 /// filesystems that write to new blocks instead of overwriting in place.

@@ -126,6 +126,7 @@ impl Drop for Fixture {
 fn options() -> erase::Options {
     erase::Options {
         passes: 1,
+        zero: false,
         verbose: false,
         force: true,
         kill_holders: false,

@@ -224,7 +224,7 @@ fn json_summary_is_one_object_with_every_count() {
 
     assert_eq!(
         json,
-        r#"{"paths":["a\"b"],"assessments":[],"assessment_coverage":"visited_entries","passes":1,"files":2,"dirs":1,"links":0,"bytes":30,"hard_linked":0,"skipped":0,"refused":0,"unreadable":0,"other":0,"excluded":0,"kept_dirs":0,"objects":3}"#
+        r#"{"schema_version":1,"paths":["a\"b"],"assessments":[],"assessment_coverage":"visited_entries","passes":1,"files":2,"dirs":1,"links":0,"bytes":30,"hard_linked":0,"skipped":0,"refused":0,"unreadable":0,"other":0,"excluded":0,"kept_dirs":0,"objects":3}"#
     );
 }
 
@@ -242,7 +242,9 @@ fn json_summary_keeps_non_utf8_paths_distinct_without_filesystem_access() {
 
     let json = to_json(&paths, 1, &Summary::default());
 
-    assert!(json.starts_with("{\"paths\":[\"plain.txt\",\"a\u{fffd}b\",\"a\u{fffd}b\"]"));
+    assert!(json.starts_with(
+        "{\"schema_version\":1,\"paths\":[\"plain.txt\",\"a\u{fffd}b\",\"a\u{fffd}b\"]"
+    ));
     assert!(json.contains("\"path_bytes\":[null,\"61ff62\",\"61fe62\"]"));
 }
 

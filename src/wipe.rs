@@ -5,7 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
 
-use crate::erase::{self, Options, Pattern, pattern_for_pass};
+use crate::erase::{self, Options, Pattern};
 use crate::preview::human_bytes;
 use crate::progress::Progress;
 
@@ -41,7 +41,7 @@ fn wipe_each_pass(
 ) -> io::Result<u64> {
     let mut total = 0u64;
     for pass in 0..opts.passes {
-        let pattern = pattern_for_pass(pass, opts.passes);
+        let pattern = opts.pattern(pass);
         if opts.verbose {
             progress.finish();
             crate::ui::message!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
@@ -336,6 +336,7 @@ mod tests {
     fn options(passes: u32) -> Options {
         Options {
             passes,
+            zero: false,
             verbose: false,
             force: true,
             kill_holders: false,

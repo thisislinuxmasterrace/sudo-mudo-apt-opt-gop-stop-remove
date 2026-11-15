@@ -12,6 +12,8 @@ mod pattern;
 mod report;
 #[cfg(unix)]
 mod sparse;
+#[cfg(windows)]
+mod streams;
 #[cfg(all(test, unix))]
 mod swap_tests;
 #[cfg(test)]
@@ -36,12 +38,15 @@ pub(crate) use pattern::{Pattern, fill, pattern_for_pass};
 #[cfg(unix)]
 pub use unix::erase_path;
 pub(crate) use walk::is_excluded;
+pub(crate) use walk::{MAX_DEPTH, check_depth};
 #[cfg(windows)]
 pub use win::erase_path;
 
 /// settings for one erase run.
 pub struct Options {
     pub passes: u32,
+    /// the total includes an additional zero pass when requested.
+    pub zero: bool,
     pub verbose: bool,
     #[cfg_attr(not(windows), allow(dead_code))]
     pub force: bool,
@@ -53,4 +58,14 @@ pub struct Options {
     pub quiet: bool,
     /// reads the file back after the last pass and compares it with what was written; a mismatch keeps the file.
     pub verify: bool,
+}
+
+impl Options {
+    pub(crate) fn pattern(&self, pass: u32) -> Pattern {
+        if self.zero && pass + 1 == self.passes {
+            Pattern::Zeros
+        } else {
+            pattern_for_pass(pass, self.passes - u32::from(self.zero))
+        }
+    }
 }

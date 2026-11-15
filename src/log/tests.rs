@@ -17,7 +17,7 @@ fn line_has_the_fields_in_order_and_escapes_them() {
 
     let tail =
         r#","path":"a\"b","kind":"file","size":7,"passes":3,"result":"error","detail":"x\\y"}"#;
-    assert!(line.starts_with("{\"time\":\""));
+    assert!(line.starts_with("{\"schema_version\":1,\"time\":\""));
     assert!(line.ends_with(&format!("{tail}\n")), "{line}");
 }
 

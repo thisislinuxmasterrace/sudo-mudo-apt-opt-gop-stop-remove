@@ -145,6 +145,7 @@ mod tests {
             let expected = Expected::from_seed([7; SEED_LEN]);
             let opts = Options {
                 passes: 1,
+                zero: false,
                 verbose: false,
                 force: false,
                 kill_holders: false,

@@ -33,7 +33,7 @@ impl Compression {
                 "the filesystem has no transparent compression; snapshots are unknown"
             }
             Self::Enabled => {
-                "transparent compression is enabled on this mount, so new data may land in smaller extents than the old data; snapshots are unknown"
+                "transparent compression is indicated for this object or mount, so new data may land in smaller extents than the old data; snapshots are unknown"
             }
         }
     }

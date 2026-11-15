@@ -48,6 +48,12 @@ fn log_has_one_line_per_object_and_no_contents() {
     let lines = log_lines(&log);
     assert_eq!(lines.len(), 4, "{text}");
     assert!(lines.iter().all(|line| is_json_object(line)), "{text}");
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.starts_with("{\"schema_version\":1,")),
+        "{text}"
+    );
     assert!(lines.iter().all(|line| line.contains("\"result\":\"ok\"")));
     let files: Vec<&String> = lines
         .iter()
@@ -249,7 +255,7 @@ fn dry_run_json_is_one_line_on_stdout() {
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(lines.len(), 1, "{stdout}");
     assert!(is_json_object(lines[0]), "{stdout}");
-    assert!(lines[0].starts_with("{\"paths\":[\""));
+    assert!(lines[0].starts_with("{\"schema_version\":1,\"paths\":[\""));
     assert!(lines[0].contains(",\"files\":2,"), "{stdout}");
     assert!(lines[0].contains(",\"dirs\":1,"), "{stdout}");
     assert!(lines[0].ends_with(",\"objects\":3}"), "{stdout}");

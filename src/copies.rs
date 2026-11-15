@@ -8,6 +8,8 @@ use std::ffi::{OsStr, OsString};
 use std::fs::{self, Metadata};
 use std::path::{Path, PathBuf};
 
+pub(crate) mod git;
+
 /// how many ancestors of a path are looked at.
 const MAX_DEPTH: usize = 64;
 

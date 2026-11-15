@@ -4,6 +4,18 @@ use std::path::Path;
 
 use crate::log::Log;
 
+/// bounds recursive stack and descriptor use; deeper entries stay untouched.
+pub(crate) const MAX_DEPTH: usize = 64;
+
+pub(crate) fn check_depth(rel: &Path) -> std::io::Result<()> {
+    if rel.components().count() > MAX_DEPTH {
+        return Err(std::io::Error::other(format!(
+            "directory nesting exceeds {MAX_DEPTH} levels; deeper entries are kept"
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
 use super::mount::MountTable;
 

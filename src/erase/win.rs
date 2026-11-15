@@ -44,6 +44,7 @@ pub fn erase_path(
 
 #[cfg(windows)]
 fn erase_within(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
+    super::check_depth(walk.rel)?;
     log_stopped(walk.log)?;
     let (meta, assessment) =
         crate::assessment::Assessment::capture(path).map_err(|err| unseen(walk.log, path, err))?;
@@ -126,6 +127,11 @@ fn log_skipped_path(log: Option<&Log>, path: &Path, detail: &str) {
 
 #[cfg(windows)]
 fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
+    if !super::streams::names(path)?.is_empty() {
+        return Err(io::Error::other(
+            "directory has named data streams; refusing to erase it without full stream coverage",
+        ));
+    }
     make_writable(path, true)?;
 
     // list first, so the directory is not changed while it is iterated.
@@ -195,6 +201,11 @@ fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
 
     if opts.verbose {
         crate::ui::message!("  removing directory {}", path.display());
+    }
+    if !super::streams::names(path)?.is_empty() {
+        return Err(io::Error::other(
+            "directory acquired named data streams; the directory is kept",
+        ));
     }
     unlink_with_random_name(path, true).map(|()| false)
 }
@@ -325,7 +336,23 @@ fn overwrite_open_file(path: &Path, file: &mut File, opts: &Options) -> io::Resu
     // length from the open handle, not from a second lookup.
     let meta = file.metadata()?;
     check_hard_links(path, link_count(&meta) > 1, opts)?;
-    overwrite_in_place(file, meta.len(), opts)
+    let (names, mut streams) = super::streams::open_named(path, file)?;
+    for (name, stream) in names.iter().zip(&mut streams) {
+        let size = stream.metadata()?.len();
+        overwrite_in_place(stream, size, opts).map_err(|err| {
+            io::Error::new(
+                err.kind(),
+                format!("data stream {}: {err}", name.to_string_lossy()),
+            )
+        })?;
+    }
+    overwrite_in_place(file, meta.len(), opts)?;
+    if super::streams::open_named(path, file)?.0 != names {
+        return Err(io::Error::other(
+            "data streams changed during overwrite; the file is kept",
+        ));
+    }
+    Ok(())
 }
 
 /// overwrites a file in place. windows does not rename it first, so an interrupted overwrite leaves
@@ -333,7 +360,7 @@ fn overwrite_open_file(path: &Path, file: &mut File, opts: &Options) -> io::Resu
 #[cfg(windows)]
 fn overwrite_in_place(file: &mut File, len: u64, opts: &Options) -> io::Result<()> {
     let whole = 0..len;
-    let expected = opts.verify.then(Expected::new);
+    let expected = opts.verify.then(|| Expected::new(opts.zero));
     overwrite(file, std::slice::from_ref(&whole), opts, expected.as_ref()).map_err(|err| {
         io::Error::new(
             err.kind(),
@@ -456,53 +483,5 @@ fn unlink_with_random_name(path: &Path, is_dir: bool) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Read;
-
-    #[test]
-    fn retry_uses_size_after_holder_changes_file_before_closing() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("data");
-        let opts = Options {
-            passes: 1,
-            verbose: false,
-            force: true,
-            kill_holders: true,
-            allow_protected: false,
-            quiet: true,
-            verify: true,
-        };
-
-        for (before, after) in [(8, 4096), (4096, 8)] {
-            fs::write(&path, vec![42; before]).unwrap();
-            let mut observer = File::open(&path).unwrap();
-            let listing = Ok(vec![windows::Holder {
-                pid: 0,
-                name: "test holder".to_owned(),
-            }]);
-            erase_locked_with(
-                &path,
-                &opts,
-                io::Error::from_raw_os_error(32),
-                listing,
-                |path| {
-                    fs::write(path, vec![42; after])?;
-                    Ok(Vec::new())
-                },
-            )
-            .unwrap();
-
-            assert!(!path.exists());
-            let mut contents = Vec::new();
-            observer.read_to_end(&mut contents).unwrap();
-            assert_eq!(contents.len(), after);
-            let changed = if after > before {
-                &contents[before..]
-            } else {
-                &contents[..]
-            };
-            assert!(changed.iter().any(|&byte| byte != 42));
-        }
-    }
-}
+#[path = "win_tests.rs"]
+mod tests;

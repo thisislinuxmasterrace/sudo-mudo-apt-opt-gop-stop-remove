@@ -4,6 +4,28 @@ all notable changes are listed here. the format follows [keep a changelog](https
 
 ## [Unreleased]
 
+### added
+
+- `--zero` adds a final zero pass, including read-back verification when requested; normal runs still end with random data.
+- `schema_version: 1` in dry-run json and every erase-log record, with compatibility rules in the reference.
+- linux fscrypt metadata detection, preserving dm-crypt facts when both layers encrypt the target.
+- positive macos and windows compression flags in assessments.
+- device `--explain` advice distinguishes overwrite, firmware erase and luks keyslot removal without running commands.
+- `--explain` distinguishes git index and reachable-history evidence and checks direct btrfs or containing-dataset zfs snapshots with bounded read-only tools.
+- windows named file data streams are overwritten and optionally verified before deletion; locked streams and directories with streams are refused.
+
+### changed
+
+- human output groups targets, risks, confirmation and results, with terminal colors and `NO_COLOR` support.
+- erase runs print one general risk notice instead of repeating every entry's assessment; full facts remain in json, logs and `--explain`.
+- internal hard links within one selected recursive tree are supported; excluded or external names remain protected.
+
+### fixed
+
+- human summaries no longer present conservative weak verdict counts as separate detected problems.
+- deeply nested trees stop at 64 relative levels instead of exhausting the recursive stack; deeper entries are kept.
+- device interruption messages also read correctly when only one target remains.
+
 ## [0.1.0] - 2026-11-15
 
 ### changed

@@ -3,6 +3,15 @@
 use std::fmt::Write;
 use std::path::Path;
 
+/// shared version of the dry-run object and each erase-log record.
+pub const SCHEMA_VERSION: u64 = 1;
+
+pub fn push_schema_version(out: &mut String) {
+    out.push_str("\"schema_version\":");
+    push_u64(out, SCHEMA_VERSION);
+    out.push(',');
+}
+
 /// appends `text` as a json string, quotes included. `"` and `\` are escaped, control characters
 /// become `\u00XX`; everything else, including non-ascii text, is written as it is.
 pub fn push_str(out: &mut String, text: &str) {

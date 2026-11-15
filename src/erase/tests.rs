@@ -16,6 +16,7 @@ fn erase_path(path: &Path, opts: &Options) -> io::Result<()> {
 fn options(passes: u32) -> Options {
     Options {
         passes,
+        zero: false,
         verbose: false,
         force: true,
         kill_holders: false,
@@ -29,6 +30,42 @@ pub(super) fn write_file(dir: &Path, name: &str, data: &[u8]) -> PathBuf {
     let path = dir.join(name);
     fs::write(&path, data).unwrap();
     path
+}
+
+#[cfg(unix)]
+#[test]
+fn final_zero_pass_is_verified_and_visible_through_retained_handle() {
+    use std::io::Read;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_file(dir.path(), "data.bin", &vec![0xab; 2_500_017]);
+    let mut observer = fs::File::open(&path).unwrap();
+    let mut opts = options(4);
+    opts.zero = true;
+    opts.verify = true;
+    erase_path(&path, &opts).unwrap();
+    assert!(!path.exists());
+    let mut contents = Vec::new();
+    observer.read_to_end(&mut contents).unwrap();
+    assert_eq!(contents.len(), 2_500_017);
+    assert!(contents.iter().all(|&byte| byte == 0));
+}
+
+#[test]
+fn extra_zero_pass_preserves_the_requested_random_ending_before_it() {
+    use super::Pattern;
+
+    for requested in 1..=7 {
+        let mut normal = options(requested);
+        let patterns: Vec<_> = (0..requested).map(|pass| normal.pattern(pass)).collect();
+        assert_eq!(patterns.last(), Some(&Pattern::Random));
+        normal.passes += 1;
+        normal.zero = true;
+        for (pass, pattern) in patterns.iter().enumerate() {
+            assert_eq!(normal.pattern(pass as u32), *pattern);
+        }
+        assert_eq!(normal.pattern(requested), Pattern::Zeros);
+    }
 }
 
 #[test]

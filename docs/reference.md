@@ -11,6 +11,7 @@ usage: `sudo mudo apt opt gop stop remove [OPTIONS] [PATHS]...`
 | `[PATHS]...` | | files to erase. required unless `--wipe-free` or `--files-from` is given. a block device switches the run to [device erase](devices.md) |
 | `-r`, `--recursive` | off | erase directories and their contents |
 | `-n`, `--passes <N>` | 1 | number of overwrite passes, at least 1. zeros, ones, random, repeating; the last is random |
+| `--zero` | off | add one final zero pass after the requested passes. summaries and logs include it in the total; it does not improve erasure guarantees |
 | `--dry-run` | off | show what would be erased and change nothing |
 | `--explain` | off | a dry run that also prints advice for the paths: what an overwrite can and cannot do, and commands that would help (printed, never run) |
 | `--json` | off | with `--dry-run`: the summary as one line of json on stdout. needs `--dry-run` |
@@ -68,7 +69,7 @@ with `-f` there is no question, so code 3 cannot come from a declined question. 
 `--log <FILE>` writes one json object per line for every object the erase handles, after it is handled:
 
 ```json
-{"time":"2026-10-22T10:00:00Z","path":"build/a.o","kind":"file","size":4096,"passes":1,"result":"ok","detail":""}
+{"schema_version":1,"time":"2026-10-22T10:00:00Z","path":"build/a.o","kind":"file","size":4096,"passes":1,"result":"ok","detail":""}
 ```
 
 | field | values |
@@ -94,6 +95,16 @@ assessment fields are collected before rename or deletion, even though the line 
 - a line is written after its object is handled. a sigkill in the middle of an object leaves no line for it, although it may be partly erased.
 
 ## dry-run json
+
+both the dry-run object and every log record include `schema_version: 1`. records from older versions have no version field. readers should ignore unknown fields within a supported version; incompatible field changes will increment the schema version, independently of the program version.
+
+linux encryption facts also recognize `fscrypt` through supported statx attributes and `fscrypt_dm_crypt` when both file and volume encryption are detected. unknown attributes do not prove absence. macos and windows compression flags can establish `enabled`; an unset flag stays `unknown`.
+
+`--explain` also checks each command-line target with read-only git or btrfs/zfs tools when applicable. each tool call has a two-second limit and bounded output; unavailable tools, errors and incomplete results stay unknown. git distinguishes the index from reachable history at the same path; it does not follow renames or check reflogs, unreachable objects or remotes. btrfs checks direct snapshot parent uuids; zfs checks snapshots of the containing mounted dataset. these extra details are human advice; the json snapshot fact remains `unknown`.
+
+recursive walks stop beyond 64 relative path levels, reporting incomplete coverage or an erase error and keeping deeper entries. descriptor exhaustion also stops the affected traversal. `-f` does not bypass these limits.
+
+windows file erasure includes named data streams; a locked or changed stream keeps the file with an error. directories with named streams are refused. preview and log sizes describe the default stream only, excluding additional stream bytes.
 
 `--dry-run --json` prints one line of json on stdout instead of the text summary:
 

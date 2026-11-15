@@ -248,6 +248,7 @@ fn erase_entry(
     opts: &Options,
 ) -> io::Result<bool> {
     let kind = file_kind(st);
+    super::check_depth(walk.rel)?;
     if kind == SFlag::S_IFLNK {
         remove_checked(parent, name, st, shown).map(|()| false)
     } else if kind == SFlag::S_IFDIR {
@@ -456,7 +457,7 @@ fn overwrite_hidden(parent: &File, hidden: &CStr, st: &FileStat, opts: &Options)
     // length from the open handle, not from a second lookup.
     let len = file.metadata()?.len();
     let ranges = super::sparse::data_ranges(&file, len)?;
-    let expected = opts.verify.then(Expected::new);
+    let expected = opts.verify.then(|| Expected::new(opts.zero));
     overwrite(&mut file, &ranges, opts, expected.as_ref()).map_err(|err| {
         io::Error::new(
             err.kind(),

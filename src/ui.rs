@@ -184,6 +184,7 @@ mod tests {
         assert!(!color_policy(false, false, false));
         assert!(!color_policy(true, true, false));
         assert!(!color_policy(true, false, true));
+        assert!(!color_policy(true, true, true));
     }
 
     #[test]
@@ -193,6 +194,27 @@ mod tests {
         assert_eq!(
             styled(text, Tone::Error, true),
             format!("\x1b[1;31m{text}\x1b[0m")
+        );
+    }
+
+    #[test]
+    fn all_terminal_tones_match_golden_sequences() {
+        let tones = [
+            Tone::Heading,
+            Tone::Info,
+            Tone::Warning,
+            Tone::Error,
+            Tone::Success,
+        ];
+        let actual = tones.map(|tone| styled("text", tone, true)).join("\n");
+        assert_eq!(
+            actual,
+            "\x1b[1;36mtext\x1b[0m\n\x1b[2mtext\x1b[0m\n\x1b[33mtext\x1b[0m\n\x1b[1;31mtext\x1b[0m\n\x1b[32mtext\x1b[0m"
+        );
+        assert!(
+            tones
+                .into_iter()
+                .all(|tone| styled("text", tone, false) == "text")
         );
     }
 }

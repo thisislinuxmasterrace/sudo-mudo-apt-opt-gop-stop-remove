@@ -7,6 +7,35 @@ use std::fs;
 use common::*;
 
 #[test]
+fn zero_adds_a_pass_and_verifies_the_zero_ending() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "a.txt");
+    let dry = run(
+        &["--zero", "-n", "3", "--dry-run", "--json", path_str(&file)],
+        "",
+    );
+    assert_exit(&dry, 0);
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("\"passes\":4"));
+    assert_eq!(fs::read(&file).unwrap(), b"sensitive data");
+
+    let out = run(&["--zero", "--verify", "-v", "-f", path_str(&file)], "");
+    assert_exit(&out, 0);
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("pass 1/2: random"), "{text}");
+    assert!(text.contains("pass 2/2: zeros"), "{text}");
+    assert!(!file.exists());
+}
+
+#[test]
+fn zero_pass_count_overflow_keeps_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "a.txt");
+    let out = run(&["--zero", "-n", "4294967295", "-f", path_str(&file)], "");
+    assert_exit(&out, 2);
+    assert_eq!(fs::read(&file).unwrap(), b"sensitive data");
+}
+
+#[test]
 fn verify_erases_the_file_and_prints_the_note() {
     let dir = tempfile::tempdir().unwrap();
     let file = write_file(dir.path(), "a.txt");

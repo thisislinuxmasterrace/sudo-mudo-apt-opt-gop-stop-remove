@@ -7,9 +7,9 @@ use std::path::Path;
 use std::ptr;
 
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-    FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    GetVolumeInformationByHandleW,
+    FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS,
+    FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, GetVolumeInformationByHandleW,
 };
 
 use super::{NO_FACTS, StorageFacts};
@@ -47,6 +47,9 @@ pub(super) fn capture(path: &Path, initial: &Metadata) -> Option<(Metadata, Stor
         )
     };
     let mut facts = NO_FACTS;
+    if meta.file_attributes() & FILE_ATTRIBUTE_COMPRESSED != 0 {
+        facts.2 = crate::storage::Compression::Enabled;
+    }
     if ok != 0 {
         let len = name.iter().position(|&c| c == 0).unwrap_or(name.len());
         facts.0 = Some(String::from_utf16_lossy(&name[..len]).to_ascii_lowercase());
@@ -58,6 +61,25 @@ pub(super) fn capture(path: &Path, initial: &Metadata) -> Option<(Metadata, Stor
 mod tests {
     use super::*;
     use crate::assessment::Assessment;
+
+    #[test]
+    fn native_compression_flag_supplies_a_positive_fact() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("compressed");
+        std::fs::write(&path, vec![b'x'; 128 * 1024]).unwrap();
+        let output = std::process::Command::new("compact.exe")
+            .args(["/c", "/i"])
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let (_, assessment) = Assessment::capture(&path).unwrap();
+        assert_eq!(
+            assessment.compression(),
+            crate::storage::Compression::Enabled
+        );
+        assert_eq!(assessment.verdict(), "weak");
+    }
 
     #[test]
     fn file_and_directory_use_handle_filesystem() {

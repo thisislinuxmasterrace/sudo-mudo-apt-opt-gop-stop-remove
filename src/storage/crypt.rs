@@ -1,6 +1,5 @@
-//! encryption facts for the assessment. only two cases are recognized: a block device stack with a
-//! dm-crypt (luks) mapping, found through sysfs on linux, and an ecryptfs mount, found by its name.
-//! everything else, including fscrypt and self-encrypting drives, is reported as not detected.
+//! linux encryption facts: dm-crypt through sysfs, ecryptfs by mount name, and fscrypt through statx.
+//! file-level encryption can coexist with an encrypted block-device stack.
 
 #[cfg(target_os = "linux")]
 use std::path::Path;
@@ -15,6 +14,8 @@ pub(crate) enum Encryption {
     NoneDetected,
     DmCrypt,
     Ecryptfs,
+    Fscrypt,
+    FscryptDmCrypt,
 }
 
 impl Encryption {
@@ -24,6 +25,8 @@ impl Encryption {
             Self::NoneDetected => "none_detected",
             Self::DmCrypt => "dm_crypt",
             Self::Ecryptfs => "ecryptfs",
+            Self::Fscrypt => "fscrypt",
+            Self::FscryptDmCrypt => "fscrypt_dm_crypt",
         }
     }
 
@@ -31,7 +34,7 @@ impl Encryption {
         match self {
             Self::NotChecked => "encryption is not checked",
             Self::NoneDetected => {
-                "no encryption was found (only dm-crypt and ecryptfs are looked for)"
+                "no encryption was found by the available dm-crypt, ecryptfs and fscrypt checks"
             }
             Self::DmCrypt => {
                 "the data is on a dm-crypt volume: what makes it unreadable is destroying every copy of the key, and an overwrite only reaches the encrypted blocks"
@@ -39,8 +42,56 @@ impl Encryption {
             Self::Ecryptfs => {
                 "the data is in an ecryptfs mount: destroying its key is what makes it unreadable, and an overwrite only reaches the encrypted lower files"
             }
+            Self::Fscrypt => {
+                "the filesystem encrypts this object with fscrypt; other files and key backups may retain access to its contents"
+            }
+            Self::FscryptDmCrypt => {
+                "fscrypt encrypts this object on a dm-crypt volume; file keys and volume keys are separate, and backups may retain access"
+            }
         }
     }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn with_fscrypt(self, encrypted: Option<bool>) -> Self {
+        if encrypted != Some(true) {
+            return self;
+        }
+        if self == Self::DmCrypt {
+            Self::FscryptDmCrypt
+        } else {
+            Self::Fscrypt
+        }
+    }
+}
+
+/// reads attributes from the already checked descriptor, without opening file contents.
+#[cfg(target_os = "linux")]
+pub(crate) fn encrypted_file(file: &std::fs::File) -> Option<bool> {
+    use std::os::fd::AsRawFd;
+
+    let mut stat = std::mem::MaybeUninit::<libc::statx>::uninit();
+    // safety: file is live, the empty path is nul terminated, and stat is a writable output.
+    let result = unsafe {
+        libc::statx(
+            file.as_raw_fd(),
+            c"".as_ptr(),
+            libc::AT_EMPTY_PATH | libc::AT_SYMLINK_NOFOLLOW,
+            libc::STATX_BASIC_STATS,
+            stat.as_mut_ptr(),
+        )
+    };
+    if result != 0 {
+        return None;
+    }
+    // safety: statx succeeded and initialized the output structure.
+    let stat = unsafe { stat.assume_init() };
+    encrypted_attribute(stat.stx_attributes, stat.stx_attributes_mask)
+}
+
+#[cfg(target_os = "linux")]
+fn encrypted_attribute(attributes: u64, supported: u64) -> Option<bool> {
+    let flag = libc::STATX_ATTR_ENCRYPTED as u64;
+    (supported & flag != 0).then_some(attributes & flag != 0)
 }
 
 /// what is known about encryption under `path`, whose filesystem name is `filesystem`.
@@ -106,6 +157,45 @@ fn has_dm_crypt(block_dir: &Path, depth: u32) -> Option<bool> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn encryption_attribute_requires_support_even_when_set() {
+        let flag = libc::STATX_ATTR_ENCRYPTED as u64;
+        assert_eq!(encrypted_attribute(flag, 0), None);
+        assert_eq!(encrypted_attribute(0, 0), None);
+        assert_eq!(encrypted_attribute(flag, flag), Some(true));
+        assert_eq!(encrypted_attribute(0, flag), Some(false));
+    }
+
+    #[test]
+    fn file_encryption_keeps_the_volume_encryption_layer() {
+        assert_eq!(
+            Encryption::DmCrypt.with_fscrypt(Some(true)),
+            Encryption::FscryptDmCrypt
+        );
+        assert_eq!(
+            Encryption::NoneDetected.with_fscrypt(Some(true)),
+            Encryption::Fscrypt
+        );
+        assert_eq!(Encryption::DmCrypt.with_fscrypt(None), Encryption::DmCrypt);
+    }
+
+    #[test]
+    fn metadata_only_descriptor_supports_statx() {
+        use nix::fcntl::{OFlag, open};
+        use nix::sys::stat::Mode;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plain");
+        fs::write(&path, b"data").unwrap();
+        let fd = open(&path, OFlag::O_PATH | OFlag::O_NOFOLLOW, Mode::empty()).unwrap();
+        let file = std::fs::File::from(fd);
+        if super::super::fs_name::filesystem_name(&path).as_deref() == Some("ext4") {
+            assert_eq!(encrypted_file(&file), Some(false));
+        } else {
+            assert_ne!(encrypted_file(&file), Some(true));
+        }
+    }
 
     fn dm(root: &Path, name: &str, uuid: &str) -> std::path::PathBuf {
         let dir = root.join(name);

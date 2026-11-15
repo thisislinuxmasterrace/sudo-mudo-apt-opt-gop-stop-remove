@@ -14,6 +14,7 @@ use super::tests::write_file;
 fn options() -> Options {
     Options {
         passes: 1,
+        zero: false,
         verbose: false,
         force: true,
         kill_holders: false,

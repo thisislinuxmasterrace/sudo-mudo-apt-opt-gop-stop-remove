@@ -25,6 +25,7 @@ pub struct Summary {
     pub assessments: Vec<EntryAssessment>,
     /// the root hard-link rule can refuse files otherwise counted by the preview.
     pub coverage_limited: bool,
+    pub depth_limited: bool,
     pub files: u64,
     pub dirs: u64,
     pub links: u64,
@@ -96,6 +97,7 @@ pub fn total(parts: &[Summary]) -> Summary {
     let mut total = Summary::default();
     for part in parts {
         total.coverage_limited |= part.coverage_limited;
+        total.depth_limited |= part.depth_limited;
         total.assessments.extend(part.assessments.iter().cloned());
         total.files += part.files;
         total.dirs += part.dirs;
@@ -133,6 +135,11 @@ pub(crate) fn is_target_boundary(_path: &Path) -> io::Result<bool> {
 
 /// `rel` is the path of `path` from its command-line argument, empty for the argument itself.
 fn add(walk: &mut Walk<'_>, summary: &mut Summary, path: &Path, rel: &Path) {
+    if erase::check_depth(rel).is_err() {
+        summary.depth_limited = true;
+        summary.unreadable += 1;
+        return;
+    }
     let (meta, mut assessment) = match Assessment::capture(path) {
         Ok(result) => result,
         Err(_) => {
@@ -279,6 +286,12 @@ impl Summary {
         }
         if self.unreadable > 0 {
             lines.push(format!("unreadable entries: {}", self.unreadable));
+        }
+        if self.depth_limited {
+            lines.push(format!(
+                "directory nesting exceeds {} levels; deeper entries are kept",
+                erase::MAX_DEPTH
+            ));
         }
         if self.other > 0 {
             lines.push(format!(

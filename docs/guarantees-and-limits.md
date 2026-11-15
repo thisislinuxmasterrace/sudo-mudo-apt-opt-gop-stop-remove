@@ -18,6 +18,8 @@ each pass is synced before the next one. syncing does not make the drive overwri
 
 extra passes do not solve these limits.
 
+linux can report fscrypt from metadata without reading contents, alongside an underlying dm-crypt layer. these facts do not prove that keys or backups are gone. macos `UF_COMPRESSED` and windows `FILE_ATTRIBUTE_COMPRESSED` are positive compression clues; an unset flag does not prove that an overwrite reaches old blocks. on windows directories the flag describes the default for newly created files.
+
 ## assessments
 
 file runs report an operation result and a separate assessment:
@@ -33,7 +35,7 @@ facts are advisory, collected before rename or deletion. they never authorize an
 - linux detects rotational media through sysfs; other platforms leave media unknown.
 - filesystem names are queried where supported. failures leave facts unknown.
 - linux compression facts come from mount options, not individual files. missing options do not prove compression is off.
-- linux detects dm-crypt and ecryptfs. `none_detected` does not prove plaintext; fscrypt, self-encrypting drives and some underlying storage are not detected. other platforms are unchecked.
+- linux detects dm-crypt, ecryptfs and supported fscrypt metadata. `none_detected` does not prove plaintext; self-encrypting drives and some underlying storage are not detected. other platforms are unchecked.
 - snapshots remain unknown.
 - nearby git work trees, known sync/trash folders and editor backups are listed as possible copies, never erased. `none_found` is not a backup search.
 
@@ -45,11 +47,13 @@ see [reference](reference.md#dry-run-json) for fields. device and free-space run
 
 the final pattern comes from a per-file random seed held in memory; the generator is not cryptographic. sparse-file verification reads the whole logical length, including holes. linux requests a cache drop with `posix_fadvise(DONTNEED)`; macos does not drop the cache.
 
+with `--zero`, one additional pass ends with zeros instead; `--verify` then checks zeros. this chooses the final visible bytes, not stronger erasure. compression may store zeros without replacing earlier physical blocks.
+
 a mismatch keeps the file under its name and returns exit 4; other paths continue. verification adds the owner's read permission, which a kept file retains. it is refused for devices (exit 1), conflicts with `--wipe-free` (exit 2), and is ignored in a dry run.
 
 ## other limits
 
-- **ntfs streams:** only the default data stream is overwritten. a windows alternate-stream observer retained the original bytes after file erasure.
+- **ntfs streams:** named file data streams are opened and checked before writing, overwritten and optionally verified before file deletion. a locked or changed stream keeps the file with an error. directories with named streams are refused. concurrent stream changes are not atomic with deletion. native validation of this version is required; older versions overwrote only the default stream.
 - **compression:** rewritten data may occupy new clusters, leaving old ones behind.
 - **interrupts:** a file may be partly overwritten. a second signal or abrupt stop can leave its hidden name. see [interrupts](usage.md#interrupts).
 - **hard links:** names share data. unix refuses external or unproven links under root unless explicitly overridden; proven internal links are removed before overwriting the last name. see [safety](safety.md#hard-links).

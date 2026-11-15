@@ -67,6 +67,13 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
             crate::ui::message!("{NAME}: {shown}: {err}");
             return ExitCode::from(EXIT_INVALID);
         }
+        if cli.explain {
+            crate::ui::section("device advice", true);
+            crate::ui::message!("{}:", target.shown.display());
+            for line in super::advice::lines(target.partition, facts.rotational != "1") {
+                crate::ui::message!("  - {line}");
+            }
+        }
         for problem in facts.problems() {
             if cli.allow_protected {
                 crate::ui::message!(
@@ -190,7 +197,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         let rest = if index == 0 {
             "no device was written"
         } else {
-            "the remaining devices were not erased"
+            "this device and any later targets were not erased"
         };
         if log_file.as_ref().is_some_and(|log| log.failed()) {
             crate::ui::message!("{NAME}: the log could not be written: {rest}");
@@ -202,7 +209,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
                 return ExitCode::from(EXIT_DECLINED);
             }
             crate::ui::message!(
-                "interrupted: {shown}: not erased, the remaining devices were skipped"
+                "interrupted: {shown}: this device and any later targets were skipped"
             );
             return ExitCode::from(EXIT_INCOMPLETE);
         }
@@ -217,7 +224,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
             }
             Ok(false) => {
                 crate::ui::message!(
-                    "{NAME}: {shown}: device state changed, the remaining devices were not erased"
+                    "{NAME}: {shown}: device state changed; this device and any later targets were not erased"
                 );
                 return ExitCode::from(EXIT_INCOMPLETE);
             }
@@ -226,7 +233,9 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
                 return ExitCode::from(EXIT_INVALID);
             }
             Err(err) => {
-                crate::ui::message!("{NAME}: {err}; the remaining devices were not erased");
+                crate::ui::message!(
+                    "{NAME}: {err}; this device and any later targets were not erased"
+                );
                 return ExitCode::from(EXIT_INCOMPLETE);
             }
         }

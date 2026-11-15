@@ -5,6 +5,46 @@ use common::*;
 use std::fs;
 
 #[test]
+fn dry_run_layout_matches_golden_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "data");
+    let out = run(&["--dry-run", path_str(&file)], "");
+    assert_exit(&out, 0);
+    let actual = String::from_utf8(out.stdout)
+        .unwrap()
+        .replace(path_str(&file), "<file>");
+    assert_eq!(
+        actual,
+        "\ndry run: targets\nwould erase <file> (1 passes)\n\nsummary\n  files: 1, directories: 0, links: 0, size: 14 b\n"
+    );
+    assert_eq!(fs::read(file).unwrap(), b"sensitive data");
+}
+
+#[test]
+fn quiet_success_has_no_result_and_normal_footer_matches_golden_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "data");
+    let out = run(&["-fq", path_str(&file)], "");
+    assert_exit(&out, 0);
+    let text = String::from_utf8(out.stderr).unwrap();
+    assert!(!text.contains("\nresult\n"));
+    assert!(text.contains("overwriting does not guarantee"));
+    let file = write_file(dir.path(), "data");
+    let out = run(&["-f", path_str(&file)], "");
+    assert_exit(&out, 0);
+    let text = String::from_utf8(out.stderr).unwrap();
+    let (_, footer) = text.split_once("\nresult\n").unwrap();
+    assert_eq!(
+        footer,
+        if cfg!(windows) {
+            "done: 1 target processed\n"
+        } else {
+            "done: 1 target erased\n"
+        }
+    );
+}
+
+#[test]
 fn confirmation_groups_targets_summary_risks_and_question() {
     let dir = tempfile::tempdir().unwrap();
     let file = write_file(dir.path(), "data");

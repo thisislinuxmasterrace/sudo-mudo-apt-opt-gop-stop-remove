@@ -4,6 +4,7 @@ overwrite a whole disk or partition. this mode is experimental. linux only: on m
 
 ```sh
 sudo mudo apt opt gop stop remove --dry-run /dev/sdb   # facts and refusals, writes nothing
+sudo mudo apt opt gop stop remove --explain /dev/sdb   # advice too; existing refusals still apply
 sudo mudo apt opt gop stop remove -n 3 /dev/sdb        # asks you to type /dev/sdb
 ```
 
@@ -36,7 +37,7 @@ type the exact device path as named. `-f` cannot skip this question; non-termina
 ## how it writes
 
 - writes go through `O_DIRECT`, from an aligned buffer, in 1 MiB chunks. `fdatasync` follows each pass.
-- passes are the same as for files: zeros, ones, random, the last one random.
+- passes are the same as for files: zeros, ones, random, the last one random; `--zero` adds one final zero pass.
 - before each pass the tool checks again that the open descriptor still points at the same device (`rdev`), and that the sysfs state and the size are unchanged. a change or check failure stops the erase.
 - an interrupt leaves the device partly erased. nothing can restore it.
 
@@ -45,6 +46,8 @@ type the exact device path as named. `-f` cannot skip this question; non-termina
 | flag | with a device |
 | --- | --- |
 | `-n` | passes, as for files |
+| `--zero` | one additional final zero pass; no stronger erasure guarantee |
+| `--explain` | dry run with overwrite, firmware erase and luks advice. commands are printed, never executed; support is not assumed |
 | `-f` | no effect on the confirmation (a note says so) |
 | `--dry-run` | prints the facts and refusals; `--json` is not supported (exit code 1) |
 | `--verify` | refused, exit code 1, also with `--dry-run` |

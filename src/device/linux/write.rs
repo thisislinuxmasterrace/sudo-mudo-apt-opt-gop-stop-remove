@@ -127,7 +127,7 @@ fn overwrite_passes(
         if pass > 0 {
             check(file)?;
         }
-        let pattern = erase::pattern_for_pass(pass, opts.passes);
+        let pattern = opts.pattern(pass);
         if opts.verbose {
             progress.finish();
             crate::ui::message!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
@@ -195,6 +195,7 @@ mod tests {
     fn options(passes: u32) -> Options {
         Options {
             passes,
+            zero: false,
             verbose: false,
             force: true,
             kill_holders: false,

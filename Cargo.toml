@@ -1,6 +1,6 @@
 [package]
 name = "sudo-mudo-apt-opt-gop-stop-remove"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 description = "when you really want to nuke the shit out of some files"
@@ -37,6 +37,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_RestartManager",
     "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
     "Win32_System_Threading",
 ] }
 

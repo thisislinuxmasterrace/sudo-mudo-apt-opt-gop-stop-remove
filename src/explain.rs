@@ -18,6 +18,7 @@ pub(crate) fn advice(entries: &[EntryAssessment]) -> Vec<String> {
     let mut link = false;
     let mut dm_crypt = false;
     let mut ecryptfs = false;
+    let mut fscrypt = false;
     let mut compressed = false;
     let mut copy_kinds = BTreeSet::new();
     for entry in entries {
@@ -27,6 +28,11 @@ pub(crate) fn advice(entries: &[EntryAssessment]) -> Vec<String> {
         match assessment.encryption() {
             Encryption::DmCrypt => dm_crypt = true,
             Encryption::Ecryptfs => ecryptfs = true,
+            Encryption::Fscrypt => fscrypt = true,
+            Encryption::FscryptDmCrypt => {
+                fscrypt = true;
+                dm_crypt = true;
+            }
             Encryption::NotChecked | Encryption::NoneDetected => {}
         }
         match assessment.medium() {
@@ -62,11 +68,14 @@ pub(crate) fn advice(entries: &[EntryAssessment]) -> Vec<String> {
     if unknown_medium {
         lines.push("  - storage medium unknown: check it with `lsblk -d -o NAME,ROTA`. 1 means a spinning disk, 0 means flash or a virtual disk.".to_owned());
     }
+    if fscrypt {
+        lines.push("  - fscrypt: the filesystem encrypts this object. removing one name does not destroy its encryption key; other files and key backups may still allow access. an overwrite remains best effort.".to_owned());
+    }
     if copy_on_write {
         lines.push("  - copy-on-write filesystem: a write goes to new blocks and the old ones may stay until they are reused. remove snapshots first (`btrfs subvolume list <mount>`, `zfs list -t snapshot`, `tmutil listlocalsnapshots /`), and consider erasing the whole device or destroying an encryption key.".to_owned());
     }
     if compressed {
-        lines.push("  - transparent compression is on for this mount: new data may be stored in smaller extents than the old data, so an overwrite need not reach the old blocks. random data does not compress, but that does not make the filesystem rewrite in place. treat it like a copy-on-write filesystem.".to_owned());
+        lines.push("  - transparent compression is on for this object or mount: new data may occupy smaller extents than old data, so overwriting need not reach the old blocks. on windows directories, the flag is a default for new files. random data does not prove an in-place rewrite.".to_owned());
     }
     if network {
         lines.push("  - network filesystem: the server stores the data and may keep copies and snapshots. erase on the server, or ask its administrator.".to_owned());
@@ -135,6 +144,25 @@ mod tests {
         }];
         assert!(text(&entries).contains("transparent compression is on"));
         assert!(!text(&[entry("ext4", "rotational")]).contains("transparent compression"));
+    }
+
+    #[test]
+    fn layered_encryption_keeps_both_explanations() {
+        let entries = [EntryAssessment {
+            path: PathBuf::from("x"),
+            assessment: Assessment::from_facts(
+                Some("ext4".to_owned()),
+                "flash",
+                Compression::Unknown,
+                Encryption::FscryptDmCrypt,
+                false,
+                true,
+                Some(Vec::new()),
+            ),
+        }];
+        let text = text(&entries);
+        assert!(text.contains("fscrypt:"));
+        assert!(text.contains("dm-crypt volume:"));
     }
 
     #[test]

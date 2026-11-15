@@ -263,7 +263,10 @@ fn storage_facts(path: &Path, meta: &Metadata) -> StorageFacts {
     let descriptor = Path::new(&descriptor);
     let filesystem = storage::assessment_filesystem(descriptor);
     let compression = storage::assessment_compression(descriptor, filesystem.as_deref());
-    let encryption = storage::assessment_encryption(descriptor, filesystem.as_deref());
+    let mut encryption = storage::assessment_encryption(descriptor, filesystem.as_deref());
+    if matches!(filesystem.as_deref(), Some("ext4" | "f2fs" | "ubifs")) {
+        encryption = encryption.with_fscrypt(storage::encrypted_file(&file));
+    }
     (
         filesystem,
         storage::assessment_medium(descriptor),
@@ -289,12 +292,18 @@ fn storage_facts(path: &Path, meta: &Metadata) -> StorageFacts {
     if opened.dev() != meta.dev() || opened.ino() != meta.ino() {
         return NO_FACTS;
     }
+    let compressed =
+        nix::sys::stat::fstat(&file).is_ok_and(|stat| stat.st_flags & libc::UF_COMPRESSED != 0);
     (
         nix::sys::statfs::fstatfs(&file)
             .ok()
             .map(|stat| stat.filesystem_type_name().to_owned()),
         None,
-        Compression::Unknown,
+        if compressed {
+            Compression::Enabled
+        } else {
+            Compression::Unknown
+        },
         Encryption::NotChecked,
     )
 }

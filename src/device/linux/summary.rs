@@ -61,7 +61,7 @@ pub(super) fn summary(target: &Target, facts: &Facts, passes: u32) -> Vec<String
         }
     }
     lines.push(format!("method: overwrite, {passes} passes"));
-    lines.push("the erase is irreversible: the data cannot be recovered".to_owned());
+    lines.push("destructive overwrite: existing data may be lost; remapped blocks and other copies are not covered".to_owned());
     lines
 }
 

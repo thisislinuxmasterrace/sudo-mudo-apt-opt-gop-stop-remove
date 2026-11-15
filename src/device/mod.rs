@@ -75,11 +75,13 @@ fn names_device(path: &Path) -> Result<bool, String> {
 /// erases the devices in `paths`, which `is_device_run` has already found to be all devices.
 pub fn run(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
     if cli.recursive {
-        eprintln!("{NAME}: -r cannot be used with devices: a device is erased as a whole");
+        crate::ui::message!(
+            "{NAME}: -r cannot be used with devices: a device is erased as a whole"
+        );
         return ExitCode::from(EXIT_INVALID);
     }
     if cli.verify {
-        eprintln!("{NAME}: --verify is not supported for devices yet");
+        crate::ui::message!("{NAME}: --verify is not supported for devices yet");
         return ExitCode::from(EXIT_INVALID);
     }
     erase_devices(paths, cli, opts)
@@ -93,7 +95,7 @@ fn erase_devices(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
 #[cfg(not(target_os = "linux"))]
 fn erase_devices(paths: &[PathBuf], _cli: &Cli, _opts: &Options) -> ExitCode {
     for path in paths {
-        eprintln!(
+        crate::ui::message!(
             "{NAME}: {}: erasing devices is supported on linux only for now",
             path.display()
         );

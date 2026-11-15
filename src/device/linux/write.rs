@@ -130,7 +130,7 @@ fn overwrite_passes(
         let pattern = erase::pattern_for_pass(pass, opts.passes);
         if opts.verbose {
             progress.finish();
-            eprintln!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
+            crate::ui::message!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
         }
         file.seek(SeekFrom::Start(0))?;
         let mut offset = 0u64;

@@ -190,7 +190,7 @@ impl Log {
                 } else {
                     "; the last line may be partly written"
                 };
-                eprintln!(
+                crate::ui::message!(
                     "{}: could not write the log {}: {err}{note}",
                     crate::NAME,
                     self.path.display()

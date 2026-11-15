@@ -41,7 +41,7 @@ fn overwrite_passes(
         let pattern = pattern_for_pass(pass, opts.passes);
         if opts.verbose {
             progress.finish();
-            eprintln!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
+            crate::ui::message!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
         }
         // the last pass is always random, so it is the one the read-back can reproduce.
         let source = if pass + 1 == opts.passes {

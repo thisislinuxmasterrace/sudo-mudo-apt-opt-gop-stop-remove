@@ -20,6 +20,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `src/erase/`, `verify.rs` | file and tree erasure, read-back verification |
 | `src/wipe.rs`, `device/` | free-space and linux device erasure |
 | `src/log.rs`, `json.rs`, `progress.rs` | reports and progress |
+| `src/ui.rs` | human output, stream-specific terminal colors, headings, prompts and result summaries |
 | `src/platform/` | windows restart manager, posix delete and reboot deletion |
 
 `src/erase/` separates unix descriptor-based and windows path-based walks, mount and hard-link checks, overwrite patterns, sparse ranges, interrupts and reports. its tests include unix entry substitution through test-only hooks.

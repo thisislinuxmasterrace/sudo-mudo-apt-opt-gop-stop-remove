@@ -39,7 +39,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         match Target::resolve(shown) {
             Ok(target) => targets.push(target),
             Err(err) => {
-                eprintln!("{NAME}: {err}");
+                crate::ui::message!("{NAME}: {err}");
                 invalid = true;
             }
         }
@@ -48,7 +48,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         return ExitCode::from(EXIT_INVALID);
     }
     if let Some(err) = overlap_error(&targets) {
-        eprintln!("{NAME}: {err}");
+        crate::ui::message!("{NAME}: {err}");
         return ExitCode::from(EXIT_INVALID);
     }
 
@@ -59,21 +59,21 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         let facts = match inspect(target) {
             Ok(facts) => facts,
             Err(err) => {
-                eprintln!("{NAME}: {shown}: {err}");
+                crate::ui::message!("{NAME}: {shown}: {err}");
                 return ExitCode::from(EXIT_INVALID);
             }
         };
         if let Some(err) = layout_error(&facts) {
-            eprintln!("{NAME}: {shown}: {err}");
+            crate::ui::message!("{NAME}: {shown}: {err}");
             return ExitCode::from(EXIT_INVALID);
         }
         for problem in facts.problems() {
             if cli.allow_protected {
-                eprintln!(
+                crate::ui::message!(
                     "{NAME}: warning: {shown}: {problem}, erasing it because --i-know-what-i-am-doing was given"
                 );
             } else {
-                eprintln!(
+                crate::ui::message!(
                     "{NAME}: {shown}: {problem}, refusing to erase it (--i-know-what-i-am-doing allows it)"
                 );
                 refused = true;
@@ -89,26 +89,28 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         && !cli.dry_run
         && let Err(err) = check_log(log_path, paths, &targets, &states)
     {
-        eprintln!("{NAME}: {err}");
+        crate::ui::message!("{NAME}: {err}");
         return ExitCode::from(EXIT_INVALID);
     }
 
     if cli.dry_run {
         if cli.json {
-            eprintln!("{NAME}: --dry-run --json is not supported for devices yet");
+            crate::ui::message!("{NAME}: --dry-run --json is not supported for devices yet");
             return ExitCode::from(EXIT_INVALID);
         }
         if cli.log.is_some() {
-            eprintln!("note: --log is not written by --dry-run");
+            crate::ui::message!("note: --log is not written by --dry-run");
         }
         for (target, facts) in targets.iter().zip(&states) {
+            crate::ui::section("dry run: device", false);
             println!(
                 "would erase {} ({} passes)",
                 target.shown.display(),
                 cli.passes
             );
+            crate::ui::section("summary", false);
             for line in summary(target, facts, cli.passes) {
-                println!("  {line}");
+                crate::ui::stdout_line(format_args!("  {line}"));
             }
         }
         return ExitCode::SUCCESS;
@@ -116,13 +118,13 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
 
     // the path is typed at the keyboard: a pipe cannot answer it, and -f does not skip it.
     if !io::stdin().is_terminal() {
-        eprintln!(
+        crate::ui::message!(
             "{NAME}: stdin is not a terminal: the device path must be typed at a terminal, nothing was erased"
         );
         return ExitCode::from(EXIT_DECLINED);
     }
     if cli.force {
-        eprintln!(
+        crate::ui::message!(
             "note: -f does not skip the confirmation for devices: each one is asked for by its path"
         );
     }
@@ -132,23 +134,25 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         match open_for_write(target, cli.allow_protected) {
             Ok(file) => files.push(file),
             Err(err) => {
-                eprintln!("{NAME}: {err}");
+                crate::ui::message!("{NAME}: {err}");
                 return ExitCode::from(EXIT_INVALID);
             }
         }
     }
 
     for (target, facts) in targets.iter().zip(&states) {
-        eprintln!(
+        crate::ui::section("device", true);
+        crate::ui::message!(
             "the following device will be irreversibly erased ({} passes):",
             cli.passes
         );
         for line in summary(target, facts, cli.passes) {
-            eprintln!("  {line}");
+            crate::ui::message!("  {line}");
         }
         let question = format!("type the device path ({}) to erase it:", target.typed);
+        crate::ui::section("confirm", true);
         if !prompt::ask_exact(&question, &target.typed) {
-            eprintln!("aborted, nothing was erased.");
+            crate::ui::message!("aborted, nothing was erased.");
             return ExitCode::from(EXIT_DECLINED);
         }
     }
@@ -164,9 +168,9 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
                 if let Err(err) = check_log_location(path, &targets, &states) {
                     drop(log);
                     if fs::remove_file(path).is_err() {
-                        eprintln!("{NAME}: {}: could not remove the log", path.display());
+                        crate::ui::message!("{NAME}: {}: could not remove the log", path.display());
                     }
-                    eprintln!("{NAME}: {err}");
+                    crate::ui::message!("{NAME}: {err}");
                     return ExitCode::from(EXIT_INVALID);
                 }
                 Some(log)
@@ -189,38 +193,40 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
             "the remaining devices were not erased"
         };
         if log_file.as_ref().is_some_and(|log| log.failed()) {
-            eprintln!("{NAME}: the log could not be written: {rest}");
+            crate::ui::message!("{NAME}: the log could not be written: {rest}");
             return ExitCode::from(EXIT_INCOMPLETE);
         }
         if erase::interrupted() {
             if index == 0 {
-                eprintln!("aborted, nothing was erased.");
+                crate::ui::message!("aborted, nothing was erased.");
                 return ExitCode::from(EXIT_DECLINED);
             }
-            eprintln!("interrupted: {shown}: not erased, the remaining devices were skipped");
+            crate::ui::message!(
+                "interrupted: {shown}: not erased, the remaining devices were skipped"
+            );
             return ExitCode::from(EXIT_INCOMPLETE);
         }
         // after the log exists and the handler is installed, right before this device is written.
         match unchanged(target, facts, file) {
             Ok(true) => {}
             Ok(false) if index == 0 => {
-                eprintln!(
+                crate::ui::message!(
                     "{NAME}: {shown}: device state changed while waiting for confirmation, nothing was written"
                 );
                 return ExitCode::from(EXIT_INVALID);
             }
             Ok(false) => {
-                eprintln!(
+                crate::ui::message!(
                     "{NAME}: {shown}: device state changed, the remaining devices were not erased"
                 );
                 return ExitCode::from(EXIT_INCOMPLETE);
             }
             Err(err) if index == 0 => {
-                eprintln!("{NAME}: {err}");
+                crate::ui::message!("{NAME}: {err}");
                 return ExitCode::from(EXIT_INVALID);
             }
             Err(err) => {
-                eprintln!("{NAME}: {err}; the remaining devices were not erased");
+                crate::ui::message!("{NAME}: {err}; the remaining devices were not erased");
                 return ExitCode::from(EXIT_INCOMPLETE);
             }
         }
@@ -242,7 +248,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
                         &err.to_string(),
                     );
                 }
-                eprintln!("{NAME}: {shown}: {err}; {rest}");
+                crate::ui::message!("{NAME}: {shown}: {err}; {rest}");
                 return ExitCode::from(if index == 0 {
                     EXIT_INVALID
                 } else {
@@ -251,7 +257,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
             }
         };
         if cli.verbose {
-            eprintln!("erasing {shown} ({} passes)", cli.passes);
+            crate::ui::message!("erasing {shown} ({} passes)", cli.passes);
         }
         match overwrite(
             file,
@@ -267,13 +273,14 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
                 if let Some(log) = &log_file {
                     log.record(&target.shown, kind, facts.size, Outcome::Ok, "");
                 }
-                eprintln!("erased {shown} ({} passes)", cli.passes);
+                crate::ui::section("result", true);
+                crate::ui::message!("erased {shown} ({} passes)", cli.passes);
             }
             Err(err) if err.kind() == io::ErrorKind::Interrupted => {
                 if let Some(log) = &log_file {
                     log.record_interrupted(&target.shown, kind, facts.size);
                 }
-                eprintln!(
+                crate::ui::message!(
                     "interrupted: {shown}: device partly overwritten, the data cannot be restored"
                 );
                 return ExitCode::from(EXIT_INCOMPLETE);
@@ -288,7 +295,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
                         &err.to_string(),
                     );
                 }
-                eprintln!("{NAME}: {shown}: {err}");
+                crate::ui::message!("{NAME}: {shown}: {err}");
                 return ExitCode::from(EXIT_INCOMPLETE);
             }
         }

@@ -168,11 +168,11 @@ fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
             Err(err) => {
                 if err.kind() == io::ErrorKind::Interrupted {
                     if !entry_path.is_dir() {
-                        eprintln!("{}: {err}", entry_path.display());
+                        crate::ui::failure!("{}: {err}", entry_path.display());
                     }
                     return Err(err);
                 }
-                eprintln!("{}: {err}", entry_path.display());
+                crate::ui::failure!("{}: {err}", entry_path.display());
                 failed += 1;
             }
         }
@@ -184,7 +184,7 @@ fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
         )));
     }
     if excluded > 0 {
-        eprintln!(
+        crate::ui::message!(
             "kept {}: {excluded} entries excluded by --exclude",
             path.display()
         );
@@ -194,7 +194,7 @@ fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
     }
 
     if opts.verbose {
-        eprintln!("  removing directory {}", path.display());
+        crate::ui::message!("  removing directory {}", path.display());
     }
     unlink_with_random_name(path, true).map(|()| false)
 }
@@ -246,7 +246,7 @@ fn erase_locked_with(
 ) -> io::Result<()> {
     let holders = listing.as_deref().unwrap_or_default();
     for holder in holders {
-        eprintln!(
+        crate::ui::message!(
             "{}: locked by {} (pid {})",
             path.display(),
             holder.name,
@@ -267,7 +267,7 @@ fn erase_locked_with(
             },
             check_interrupted,
             || {
-                eprintln!(
+                crate::ui::message!(
                     "warning: closing {} process(es) may lose unsaved data and stop services",
                     holders.len()
                 );
@@ -287,7 +287,7 @@ fn erase_locked_with(
                 // the forced shutdown can leave holders or let new ones open the file: list them again.
                 let remaining = windows::holders(path);
                 for holder in remaining.as_deref().unwrap_or_default() {
-                    eprintln!(
+                    crate::ui::message!(
                         "{}: still locked by {} (pid {})",
                         path.display(),
                         holder.name,

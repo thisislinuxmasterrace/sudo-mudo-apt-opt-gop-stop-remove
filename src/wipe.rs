@@ -44,13 +44,13 @@ fn wipe_each_pass(
         let pattern = pattern_for_pass(pass, opts.passes);
         if opts.verbose {
             progress.finish();
-            eprintln!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
+            crate::ui::message!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
         }
         let written = fill_pass(dir, pattern, limit, opts.verbose, progress)?;
         total += written;
         if opts.verbose {
             progress.finish();
-            eprintln!(
+            crate::ui::message!(
                 "  pass {}/{} done: {} written",
                 pass + 1,
                 opts.passes,
@@ -151,7 +151,7 @@ fn fill_file(
                 if verbose && written / GIB > reported_gib {
                     reported_gib = written / GIB;
                     progress.finish();
-                    eprintln!("    {} written", human_bytes(written));
+                    crate::ui::message!("    {} written", human_bytes(written));
                 }
             }
             Err(err) if is_out_of_space(&err) => break,

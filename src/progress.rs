@@ -22,6 +22,7 @@ pub struct Progress {
     width: usize,
     /// a line is on screen without its newline.
     drawn: bool,
+    color: bool,
 }
 
 /// true when progress is drawn: not quiet, and stderr is a terminal.
@@ -33,7 +34,9 @@ impl Progress {
     pub fn new(total: Option<u64>, quiet: bool) -> Self {
         let out: Option<Box<dyn Write>> = wanted(quiet, io::stderr().is_terminal())
             .then(|| Box::new(io::stderr()) as Box<dyn Write>);
-        Self::with_output(total, out, Instant::now())
+        let mut progress = Self::with_output(total, out, Instant::now());
+        progress.color = crate::ui::stderr_colors();
+        progress
     }
 
     fn with_output(total: Option<u64>, out: Option<Box<dyn Write>>, started: Instant) -> Self {
@@ -45,6 +48,7 @@ impl Progress {
             last_draw: None,
             width: 0,
             drawn: false,
+            color: false,
         }
     }
 
@@ -80,7 +84,7 @@ impl Progress {
         };
         let pad = " ".repeat(self.width.saturating_sub(text.len()));
         // a failed write to stderr is ignored: progress must not change the outcome of the erase.
-        let _ = write!(out, "\r{text}{pad}");
+        let _ = write!(out, "\r{}{pad}", crate::ui::progress(&text, self.color));
         if end {
             let _ = writeln!(out);
         }

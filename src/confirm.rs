@@ -52,21 +52,26 @@ pub fn confirm(
     summary: &[String],
     passes: u32,
     strict: &[(&PathBuf, &preview::Summary)],
+    notes: &[String],
 ) -> bool {
+    crate::ui::section("targets", true);
     let noun = if paths.len() == 1 { "path" } else { "paths" };
-    eprintln!(
+    crate::ui::message!(
         "the following {} {noun} will be irreversibly erased ({passes} passes):",
         paths.len()
     );
     for path in paths.iter().take(LISTED_PATHS) {
-        eprintln!("  {}", path.display());
+        crate::ui::message!("  {}", path.display());
     }
     if paths.len() > LISTED_PATHS {
-        eprintln!("  ... and {} more", paths.len() - LISTED_PATHS);
+        crate::ui::message!("  ... and {} more", paths.len() - LISTED_PATHS);
     }
+    crate::ui::section("summary", true);
     for line in summary {
-        eprintln!("  {line}");
+        crate::ui::message!("  {line}");
     }
+    crate::ui::risks(notes);
+    crate::ui::section("confirm", true);
     if strict.is_empty() {
         return prompt::ask("continue?");
     }
@@ -91,17 +96,21 @@ fn confirm_name(path: &Path, part: &preview::Summary) -> bool {
 }
 
 pub fn confirm_wipe(dir: &Path, passes: u32, space: &[String]) -> bool {
-    eprintln!(
-        "note: the volume is filled completely for a while, this can take a long time on large disks"
-    );
-    eprintln!("note: other programs writing to this volume may fail while it is full");
-    eprintln!(
+    crate::ui::section("target", true);
+    crate::ui::message!(
         "the free space of {} will be filled and overwritten ({passes} passes)",
         dir.display()
     );
+    crate::ui::section("summary", true);
     for line in space {
-        eprintln!("  {line}");
+        crate::ui::message!("  {line}");
     }
+    crate::ui::section("risks", true);
+    crate::ui::message!(
+        "note: the volume is filled completely for a while, this can take a long time on large disks"
+    );
+    crate::ui::message!("note: other programs writing to this volume may fail while it is full");
+    crate::ui::section("confirm", true);
     prompt::ask("continue?")
 }
 

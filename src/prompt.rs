@@ -14,7 +14,7 @@ pub(crate) fn ask_interruptible(question: &str) -> io::Result<bool> {
     use std::sync::mpsc;
 
     crate::erase::check_interrupted()?;
-    eprint!("{question} [y/N] ");
+    crate::ui::prompt(&format!("{question} [y/N] "));
     let (sender, receiver) = mpsc::channel();
     // the worker only reads; an interrupt ends the erase before another prompt can start.
     std::thread::spawn(move || {
@@ -88,7 +88,7 @@ pub fn read_line(prompt: &str) -> Option<String> {
 }
 
 fn read_answer(prompt: &str, eof_hint: &str) -> Option<String> {
-    eprint!("{prompt}");
+    crate::ui::prompt(prompt);
 
     let mut answer = String::new();
     let result = io::stdin().read_line(&mut answer).map(|n| (n, answer));
@@ -98,16 +98,16 @@ fn read_answer(prompt: &str, eof_hint: &str) -> Option<String> {
 fn report_answer(result: io::Result<(usize, String)>, eof_hint: &str) -> Option<String> {
     match result {
         Ok((0, _)) => {
-            eprintln!();
+            crate::ui::message!();
             if !io::stdin().is_terminal() {
-                eprintln!("{eof_hint}");
+                crate::ui::message!("{eof_hint}");
             }
             None
         }
         Ok((_, answer)) => Some(answer.trim().to_owned()),
         Err(err) => {
-            eprintln!();
-            eprintln!("could not read the answer: {err}");
+            crate::ui::message!();
+            crate::ui::message!("could not read the answer: {err}");
             None
         }
     }

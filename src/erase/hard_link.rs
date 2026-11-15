@@ -36,7 +36,7 @@ pub(super) fn check_hard_links(shown: &Path, hard_linked: bool, opts: &Options) 
     match hard_link_rule(running_as_root(), hard_linked, opts.allow_protected) {
         HardLinkRule::Erase => Ok(()),
         HardLinkRule::EraseWithWarning => {
-            eprintln!(
+            crate::ui::message!(
                 "{}: warning: hard-linked file under root, erasing it because --i-know-what-i-am-doing was given",
                 shown.display()
             );

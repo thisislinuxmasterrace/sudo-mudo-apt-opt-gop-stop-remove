@@ -19,6 +19,7 @@ mod prompt;
 mod run;
 mod safety;
 mod storage;
+mod ui;
 mod verify;
 mod wipe;
 
@@ -39,7 +40,7 @@ const EXIT_INCOMPLETE: u8 = 4;
 
 fn main() -> ExitCode {
     if let Err(err) = invocation::check() {
-        eprintln!("mudo: {err}");
+        crate::ui::message!("mudo: {err}");
         return ExitCode::from(EXIT_INVALID);
     }
     let mut cli = cli::parse();
@@ -47,13 +48,13 @@ fn main() -> ExitCode {
     cli.dry_run |= cli.explain;
 
     if !cfg!(windows) && cli.kill_holders {
-        eprintln!("{NAME}: --kill-holders is only supported on windows");
+        crate::ui::message!("{NAME}: --kill-holders is only supported on windows");
         return ExitCode::from(EXIT_ARGS);
     }
 
     // the question after the list would read stdin, which the list has already used up.
     if cli.files_from.as_deref() == Some(Path::new("-")) && !cli.force && !cli.dry_run {
-        eprintln!(
+        crate::ui::message!(
             "{NAME}: reading the list from stdin needs -f: the answer to the question cannot come from stdin"
         );
         return ExitCode::from(EXIT_ARGS);
@@ -73,7 +74,7 @@ fn main() -> ExitCode {
     if let Some(source) = &cli.files_from {
         match read_paths(source, cli.null) {
             Ok(read) => {
-                eprintln!(
+                crate::ui::message!(
                     "note: {} paths read from {}",
                     read.len(),
                     list_label(source)
@@ -81,7 +82,7 @@ fn main() -> ExitCode {
                 given.extend(read);
             }
             Err(err) => {
-                eprintln!("{NAME}: {err}");
+                crate::ui::message!("{NAME}: {err}");
                 return ExitCode::from(EXIT_INVALID);
             }
         }
@@ -104,7 +105,7 @@ fn main() -> ExitCode {
     match &cli.wipe_free {
         Some(dir) => run_wipe_free(&normalize(dir), &cli, &opts),
         None if paths.is_empty() => {
-            eprintln!("{NAME}: no paths were given");
+            crate::ui::message!("{NAME}: no paths were given");
             ExitCode::from(EXIT_INVALID)
         }
         None => run_erase(&paths, &cli, &opts),

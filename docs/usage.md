@@ -31,6 +31,10 @@ sudo mudo apt opt gop stop remove --verify -f venom.exe # read the last pass bac
 
 ## before anything is erased
 
+human output groups targets, summary, risks, confirmation and result. terminal headings are cyan, warnings yellow, errors red and successful results green. redirected streams stay plain; `NO_COLOR` (including an empty value) or `TERM=dumb` disables color. `-q` hides progress and the successful result footer for path erases; warnings and errors remain. json and log records never contain terminal styling. result counts refer to command-line targets, not files inside a tree; excluded targets are listed separately from erased targets.
+
+on windows, the result says `processed` because accepted deletion may be queued for reboot; read the locked-file notice for its status.
+
 every path is validated first. one refused path aborts the whole run with exit code 1 before anything is touched.
 
 the tool warns that overwriting does not guarantee erasure, including with `-f`. it summarizes files, directories, links, size, hard links, skipped mounts, exclusions, special files and unreadable entries, then asks for confirmation.

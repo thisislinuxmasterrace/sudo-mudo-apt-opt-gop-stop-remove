@@ -286,17 +286,18 @@ impl Summary {
                 self.other
             ));
         }
-        for entry in self.assessments.iter().take(20) {
+        if !self.assessments.is_empty() {
+            let mut counts = std::collections::BTreeMap::new();
+            for entry in &self.assessments {
+                *counts.entry(entry.assessment.verdict()).or_insert(0usize) += 1;
+            }
+            let counts: Vec<_> = counts
+                .iter()
+                .map(|(verdict, count)| format!("{count} {verdict}"))
+                .collect();
             lines.push(format!(
-                "{}: {}",
-                entry.path.display(),
-                entry.assessment.line()
-            ));
-        }
-        if self.assessments.len() > 20 {
-            lines.push(format!(
-                "... and {} more assessments (use --dry-run --json for all entries)",
-                self.assessments.len() - 20
+                "assessments: {} (use --explain for risks or --dry-run --json for details)",
+                counts.join(", ")
             ));
         }
         if self.incomplete() {

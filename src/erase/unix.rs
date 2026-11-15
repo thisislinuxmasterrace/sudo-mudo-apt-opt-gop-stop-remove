@@ -87,11 +87,19 @@ pub fn erase_path(
         );
         return Err(err);
     }
+    let tree_links =
+        if running_as_root() && !opts.allow_protected && file_kind(&st) == SFlag::S_IFDIR {
+            super::tree_links::TreeLinks::collect(&dir, &entry, &st, &real, excludes, &mounts)
+                .map_err(|err| unseen(log, path, err))?
+        } else {
+            super::tree_links::TreeLinks::default()
+        };
     let walk = Walk {
         rel: Path::new(""),
         excludes,
         log,
         mounts: &mounts,
+        tree_links: &tree_links,
     };
     erase_object(&dir, entry.as_c_str(), &st, path, &real, walk, opts)
 }
@@ -141,7 +149,12 @@ fn erase_object(
     let (kind, size) = stat_kind(st);
     let assessment = assess_selected(real, st);
     let rule = hard_link_rule(running_as_root(), st.st_nlink > 1, opts.allow_protected);
-    let refused = kind == Kind::Other || (kind == Kind::File && rule == HardLinkRule::Refuse);
+    let refused = kind == Kind::Other
+        || (kind == Kind::File
+            && rule == HardLinkRule::Refuse
+            && !walk.tree_links.contains_all(st));
+    let unlink_only =
+        kind == Kind::File && rule == HardLinkRule::Refuse && walk.tree_links.contains_all(st);
     let warning = if kind == Kind::File && rule == HardLinkRule::EraseWithWarning {
         "hard-linked file under root, erased because --i-know-what-i-am-doing was given"
     } else {
@@ -150,6 +163,12 @@ fn erase_object(
     // checked before each object, so nothing new is started after a signal.
     let result =
         check_interrupted().and_then(|()| erase_entry(parent, name, st, shown, real, walk, opts));
+    if result.as_ref().is_ok_and(|kept| !kept) && unlink_only {
+        if let Some(log) = walk.log {
+            log.record_unlinked(shown, size, &assessment);
+        }
+        return result;
+    }
     log_done(
         walk.log,
         shown,
@@ -234,6 +253,16 @@ fn erase_entry(
     } else if kind == SFlag::S_IFDIR {
         erase_dir_at(parent, name, st, shown, real, walk, opts)
     } else if kind == SFlag::S_IFREG {
+        if running_as_root()
+            && !opts.allow_protected
+            && st.st_nlink > 1
+            && walk.tree_links.contains_all(st)
+        {
+            // remove redundant names without writing shared data; overwrite only the last name.
+            remove_checked(parent, name, st, shown)?;
+            walk.tree_links.removed(st);
+            return Ok(false);
+        }
         erase_file_at(parent, name, st, shown, opts).map(|()| false)
     } else {
         Err(io::Error::new(
@@ -310,6 +339,7 @@ fn erase_contents(
             excludes: walk.excludes,
             log: walk.log,
             mounts: walk.mounts,
+            tree_links: walk.tree_links,
         };
         let result = match fstatat(dir, name.as_c_str(), AtFlags::AT_SYMLINK_NOFOLLOW) {
             Ok(st) => match is_boundary(&st, dir_st, &entry_real, walk.mounts) {
@@ -366,7 +396,7 @@ fn erase_contents(
 
 /// names in `dir` except `.` and `..`, read before anything is erased.
 #[cfg(unix)]
-fn list_names(dir: &File) -> io::Result<Vec<CString>> {
+pub(super) fn list_names(dir: &File) -> io::Result<Vec<CString>> {
     // fdopendir takes ownership of the descriptor, so list a duplicate.
     let mut listing = Dir::from_fd(OwnedFd::from(dir.try_clone()?))?;
     let mut names = Vec::new();
@@ -420,6 +450,9 @@ fn overwrite_hidden(parent: &File, hidden: &CStr, st: &FileStat, opts: &Options)
         access | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_NOCTTY | OFlag::O_CLOEXEC,
         st,
     )?;
+    if !opts.allow_protected {
+        check_hard_links(Path::new("opened file"), fstat(&file)?.st_nlink > 1, opts)?;
+    }
     // length from the open handle, not from a second lookup.
     let len = file.metadata()?.len();
     let ranges = super::sparse::data_ranges(&file, len)?;

@@ -52,7 +52,7 @@ a mismatch keeps the file under its name and returns exit 4; other paths continu
 - **ntfs streams:** only the default data stream is overwritten. a windows alternate-stream observer retained the original bytes after file erasure.
 - **compression:** rewritten data may occupy new clusters, leaving old ones behind.
 - **interrupts:** a file may be partly overwritten. a second signal or abrupt stop can leave its hidden name. see [interrupts](usage.md#interrupts).
-- **hard links:** names share data. unix refuses them under root unless explicitly overridden. see [safety](safety.md#hard-links).
+- **hard links:** names share data. unix refuses external or unproven links under root unless explicitly overridden; proven internal links are removed before overwriting the last name. see [safety](safety.md#hard-links).
 - **read-only parent:** contents may be erased even when their directory cannot be removed.
 - **logs:** record paths, not contents. unix logs use mode 0600 and remain after erasure.
 

@@ -135,14 +135,41 @@ impl Log {
         detail: &str,
         assessment: Option<&crate::assessment::Assessment>,
     ) {
-        if self.failed.get() {
-            return;
-        }
         let passes = if matches!(kind, Kind::File | Kind::Device | Kind::Partition) {
             self.passes
         } else {
             0
         };
+        self.record_assessed_with_passes(path, kind, size, outcome, detail, assessment, passes);
+    }
+
+    /// records a redundant internal name without claiming that its data was overwritten.
+    #[cfg(unix)]
+    pub(crate) fn record_unlinked(
+        &self,
+        path: &Path,
+        size: u64,
+        assessment: &crate::assessment::Assessment,
+    ) {
+        self.record_assessed_with_passes(path, Kind::File, size, Outcome::Ok,
+            "internal hard link removed; not overwritten here; remaining name scheduled for overwrite",
+            Some(&assessment.unattempted()), 0);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_assessed_with_passes(
+        &self,
+        path: &Path,
+        kind: Kind,
+        size: u64,
+        outcome: Outcome,
+        detail: &str,
+        assessment: Option<&crate::assessment::Assessment>,
+        passes: u32,
+    ) {
+        if self.failed.get() {
+            return;
+        }
         let mut line = line(path, kind, size, passes, outcome, detail);
         if let Some(assessment) = assessment {
             line.truncate(line.len() - 2);

@@ -181,6 +181,7 @@ impl Assessment {
         assessment
     }
 
+    #[cfg(test)]
     pub(crate) fn line(&self) -> String {
         format!("{}: {}", self.verdict, self.reasons.join("; "))
     }

@@ -17,6 +17,8 @@ pub(super) struct Walk<'a> {
     pub(super) log: Option<&'a Log>,
     #[cfg(unix)]
     pub(super) mounts: &'a MountTable,
+    #[cfg(unix)]
+    pub(super) tree_links: &'a super::tree_links::TreeLinks,
 }
 
 /// true when `rel`, the path of an entry from its command-line argument, matches an `--exclude`

@@ -127,3 +127,81 @@ fn hard_linked_file_inside_a_tree_under_root_exits_with_four() {
     assert!(file.exists());
     assert!(tree.exists());
 }
+
+#[test]
+fn cargo_style_internal_hard_links_are_erased_recursively() {
+    use std::io::Read;
+    let dir = tempfile::tempdir().unwrap();
+    let tree = make_tree(dir.path(), "project", 0);
+    let deps = tree.join("target/debug/deps");
+    fs::create_dir_all(&deps).unwrap();
+    let file = write_file(&deps, "app-hash");
+    fs::hard_link(&file, tree.join("target/debug/app")).unwrap();
+    fs::hard_link(&file, deps.join("app-other-hash")).unwrap();
+    let mut observer = fs::File::open(&file).unwrap();
+    let log = dir.path().join("erase.log");
+    let out = run(
+        &[
+            "-rf",
+            "-n",
+            "3",
+            "--verify",
+            "--log",
+            path_str(&log),
+            path_str(&tree),
+        ],
+        "",
+    );
+    assert_exit(&out, 0);
+    assert!(!tree.exists());
+    let mut contents = Vec::new();
+    observer.read_to_end(&mut contents).unwrap();
+    assert_eq!(contents.len(), b"sensitive data".len());
+    assert_ne!(contents, b"sensitive data");
+    let records = fs::read_to_string(log).unwrap();
+    assert_eq!(
+        records
+            .matches("internal hard link removed; not overwritten here")
+            .count(),
+        2
+    );
+    for line in records
+        .lines()
+        .filter(|line| line.contains("internal hard link removed"))
+    {
+        assert!(line.contains("\"passes\":0"), "{line}");
+    }
+    assert_eq!(
+        records
+            .lines()
+            .filter(|line| line.contains("\"kind\":\"file\"") && line.contains("\"passes\":3"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn external_and_excluded_hard_links_keep_original_contents() {
+    for excluded in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = make_tree(dir.path(), "project", 0);
+        let file = write_file(&tree, "app");
+        let other = if excluded {
+            tree.join("keep")
+        } else {
+            dir.path().join("outside")
+        };
+        fs::hard_link(&file, &other).unwrap();
+        let mut args = vec!["-rf", path_str(&tree)];
+        if excluded {
+            args.extend(["--exclude", "keep"]);
+        }
+        let out = run(&args, "");
+        assert_exit(&out, 4);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains(path_str(&file)), "{stderr}");
+        assert!(stderr.contains("hard-linked file under root"), "{stderr}");
+        assert_eq!(fs::read(&file).unwrap(), b"sensitive data");
+        assert_eq!(fs::read(&other).unwrap(), b"sensitive data");
+    }
+}

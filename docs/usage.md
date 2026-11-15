@@ -35,11 +35,11 @@ every path is validated first. one refused path aborts the whole run with exit c
 
 the tool warns that overwriting does not guarantee erasure, including with `-f`. it summarizes files, directories, links, size, hard links, skipped mounts, exclusions, special files and unreadable entries, then asks for confirmation.
 
-`--dry-run` prints the summary without changes. the text shows up to 20 entry assessments; `--dry-run --json` includes all inspected entries. directory metadata and children are assessed separately; skipped or unreadable entries limit coverage. see [assessments](guarantees-and-limits.md#assessments).
+`--dry-run` prints the summary without changes. text groups assessments by verdict instead of listing every entry; `--dry-run --json` includes all inspected entries. directory metadata and children are assessed separately; skipped or unreadable entries limit coverage. see [assessments](guarantees-and-limits.md#assessments).
 
 `--explain` adds advice to a dry run; commands are printed, never run. it detects storage concerns, links and some possible copies (see [assessments](guarantees-and-limits.md#assessments)). for a device it only shows the dry run. it cannot be combined with `--json` or `--wipe-free`.
 
-with `-f` and no `--dry-run` the preliminary summary is not shown and the tree is not counted. assessments are collected during the erase walk and printed on stderr, without another walk or question.
+with `-f` and no `--dry-run` the preliminary summary is not shown and the tree is not counted. unix root runs still inspect the selected tree first to check internal hard links. real erases print the general risk notice once, without per-entry assessments; errors keep their paths and reasons. use `--log` for per-entry facts, `--explain` for risk advice, and `-v` for operation details.
 
 ## confirmation
 

@@ -26,7 +26,7 @@ fn dry_run_and_completed_log_keep_the_same_file_facts() {
     let record = fs::read_to_string(log).unwrap();
     assert!(record.contains("\"result\":\"ok\""), "{record}");
     assert!(record.contains(fields), "dry: {text}\nlog: {record}");
-    assert!(String::from_utf8_lossy(&erased.stderr).contains("weak"));
+    assert!(!String::from_utf8_lossy(&erased.stderr).contains("note: assessment:"));
 }
 
 #[test]
@@ -51,8 +51,26 @@ fn other_copies_are_reported_in_dry_run_and_log_and_never_make_the_verdict_effec
     assert_exit(&erased, 0);
     let record = fs::read_to_string(log).unwrap();
     assert!(record.contains("\"kind\":\"editor_backup\""), "{record}");
-    assert!(String::from_utf8_lossy(&erased.stderr).contains("editor backup"));
+    assert!(!String::from_utf8_lossy(&erased.stderr).contains("note: assessment:"));
     assert!(backup.exists(), "a found copy is reported, never erased");
+}
+
+#[test]
+fn recursive_output_does_not_grow_with_successful_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let tree = make_tree(dir.path(), "tree", 1000);
+    let out = run(&["-rf", path_str(&tree)], "");
+    assert_exit(&out, 0);
+    assert!(!tree.exists());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        stderr
+            .matches("note: overwriting does not guarantee erasure")
+            .count(),
+        1
+    );
+    assert!(!stderr.contains("note: assessment:"), "{stderr}");
+    assert!(stderr.lines().count() < 10, "{stderr}");
 }
 
 #[cfg(unix)]

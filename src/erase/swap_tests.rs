@@ -137,6 +137,24 @@ fn directory_swapped_for_a_symlink_is_not_entered() {
 }
 
 #[test]
+fn hard_link_added_before_open_is_refused_without_overwriting() {
+    if !super::running_as_root() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "a.txt", b"secret");
+    let outside = tempfile::tempdir().unwrap();
+    let other = outside.path().join("other.txt");
+    let (root, target) = (dir.path().to_path_buf(), other.clone());
+    seam::set(Stage::Open, None, move |hidden| {
+        fs::hard_link(root.join(OsStr::from_bytes(hidden.to_bytes())), &target).unwrap();
+    });
+    assert!(erase(&file).is_err());
+    assert_eq!(fs::read(&file).unwrap(), b"secret");
+    assert_eq!(fs::read(other).unwrap(), b"secret");
+}
+
+#[test]
 fn symlink_swapped_for_a_file_is_not_deleted() {
     let dir = tempfile::tempdir().unwrap();
     let target = write_file(dir.path(), "target.txt", b"target");

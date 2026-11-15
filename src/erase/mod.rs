@@ -17,6 +17,8 @@ mod swap_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(unix)]
+mod tree_links;
+#[cfg(unix)]
 mod unix;
 mod walk;
 #[cfg(windows)]

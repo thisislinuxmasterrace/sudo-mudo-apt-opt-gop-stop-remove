@@ -36,7 +36,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 4. count the tree (`preview`), unless `-f` and no dry run.
 5. dry run: print the summary or json and return.
 6. print the notes, ask the confirmation (strict where needed), install the interrupt handlers, create the log.
-7. erase each path (`erase::erase_path`), collecting each entry's advisory facts before rename or deletion and reporting them with log lines; map the outcome to an exit code.
+7. erase each path (`erase::erase_path`), collecting each entry's advisory facts before rename or deletion for the json log; map the outcome to an exit code. text prints risks once and keeps per-entry errors. unix root runs inventory internal hard links (`erase/tree_links.rs`) through checked directory descriptors, unlink redundant selected names, then overwrite the last name only after a fresh handle link-count check.
 
 `run_wipe_free` validates the directory, refuses network and unknown filesystems, shows the space, asks, installs the handlers and calls `wipe::wipe_free_space`.
 

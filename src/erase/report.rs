@@ -1,6 +1,6 @@
 //! log lines for the objects an erase handles, and the stop of an erase once the log cannot be written.
 
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
 
 use crate::assessment::Assessment;
@@ -16,29 +16,6 @@ pub(super) fn log_object(
     detail: &str,
     assessment: &Assessment,
 ) {
-    log_object_to(
-        log,
-        shown,
-        kind,
-        size,
-        outcome,
-        detail,
-        assessment,
-        &mut io::stderr().lock(),
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-fn log_object_to(
-    log: Option<&Log>,
-    shown: &Path,
-    kind: Kind,
-    size: u64,
-    outcome: Outcome,
-    detail: &str,
-    assessment: &Assessment,
-    output: &mut impl Write,
-) {
     let assessment = if matches!(outcome, Outcome::Skipped | Outcome::Refused) {
         assessment.unattempted()
     } else {
@@ -47,16 +24,6 @@ fn log_object_to(
     if let Some(log) = log {
         log.record_assessed(shown, kind, size, outcome, detail, Some(&assessment));
     }
-    print_assessment(output, shown, &assessment);
-}
-
-fn print_assessment(output: &mut impl Write, shown: &Path, assessment: &Assessment) {
-    let _ = writeln!(
-        output,
-        "note: assessment: {}: {}",
-        shown.display(),
-        assessment.line()
-    );
 }
 
 /// writes the line of an object whose erase returned `result`. `refused` marks an object the erase
@@ -87,7 +54,6 @@ pub(super) fn log_done(
             if let Some(log) = log {
                 log.record_interrupted_assessed(shown, kind, size, Some(assessment));
             }
-            print_assessment(&mut io::stderr().lock(), shown, assessment);
         }
         Err(err) => {
             let outcome = if refused {
@@ -138,19 +104,10 @@ mod tests {
     use crate::log::test_support::Memory;
 
     #[test]
-    fn failed_advisory_output_does_not_prevent_log() {
-        struct Failed;
-        impl Write for Failed {
-            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-                Err(io::Error::other("output failed"))
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
+    fn object_log_keeps_assessment_fields() {
         let memory = Memory::default();
         let log = Log::new(Path::new("erase.log"), 1, Box::new(memory.clone()));
-        log_object_to(
+        log_object(
             Some(&log),
             Path::new("file"),
             Kind::File,
@@ -158,9 +115,9 @@ mod tests {
             Outcome::Ok,
             "",
             &Assessment::unknown(),
-            &mut Failed,
         );
         assert!(memory.text().contains("\"result\":\"ok\""));
+        assert!(memory.text().contains("\"verdict\":\"weak\""));
     }
 
     #[test]

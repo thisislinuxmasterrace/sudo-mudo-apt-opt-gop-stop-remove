@@ -132,7 +132,7 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
     }
 
     eprintln!(
-        "note: overwriting does not guarantee erasure on ssds, with snapshots, or on copy-on-write filesystems"
+        "note: overwriting does not guarantee erasure on ssds, with snapshots, or on copy-on-write filesystems; backups and other copies may remain (use --explain for risks or --log for per-entry assessments)"
     );
     if cli.verify {
         eprintln!(
@@ -144,7 +144,7 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
         && total.as_ref().is_some_and(|total| total.hard_linked > 0)
     {
         eprintln!(
-            "note: under root, hard-linked files are refused: use --i-know-what-i-am-doing to erase them"
+            "note: under root, hard-linked files are refused unless every name is selected inside the same tree; external or unproven links need --i-know-what-i-am-doing"
         );
     }
     let strict = match &counted {

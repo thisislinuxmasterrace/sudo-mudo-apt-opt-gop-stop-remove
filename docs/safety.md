@@ -40,7 +40,9 @@ the home directory (`$HOME` or the passwd entry on unix, `%USERPROFILE%` on wind
 
 a hard link shares one copy of the data with other names, so overwriting it erases the content for all of them.
 
-- unix invocations run as root and refuse hard-linked files: a named target fails validation (code 1, also with `--dry-run`); one found inside `-r` keeps the tree and returns code 4. `--i-know-what-i-am-doing` overrides this with a warning.
+- unix invocations run as root and refuse hard-linked files: a named target fails validation (code 1, also with `--dry-run`); an external or unproven link inside `-r` keeps the tree and returns code 4. `--i-know-what-i-am-doing` overrides this with a warning.
+- inside one recursive target, all names may be removed when a descriptor-based inventory finds as many selected names as the inode's link count. excluded entries and mount boundaries do not count. redundant names are removed without overwriting shared data; only the last name is overwritten, after checking the opened file's link count again. an inventory error stops that target before erasure. names spread across separate command-line targets do not qualify.
+- the preview remains conservative: hard links under root can mark assessment coverage incomplete even when the real erase later proves them internal. concurrent changes can cause refusal or partial completion; the link-count check and writes are separate operations.
 - on windows the link count is not read and root is never detected, so the rule does not apply and the summary does not list hard links.
 - system trees are not scanned for hard links.
 

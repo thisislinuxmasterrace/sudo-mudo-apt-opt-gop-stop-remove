@@ -22,6 +22,7 @@ all notable changes are listed here. the format follows [keep a changelog](https
 
 ### fixed
 
+- btrfs snapshot advice works for file targets by listing their containing directory.
 - human summaries no longer present conservative weak verdict counts as separate detected problems.
 - deeply nested trees stop at 64 relative levels instead of exhausting the recursive stack; deeper entries are kept.
 - device interruption messages also read correctly when only one target remains.

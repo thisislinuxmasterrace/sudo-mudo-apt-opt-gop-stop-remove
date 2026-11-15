@@ -30,9 +30,21 @@ pub(crate) fn explain(path: &Path) -> Option<String> {
 }
 
 fn btrfs(path: &Path) -> Option<String> {
+    btrfs_using(path, std::ffi::OsStr::new("btrfs"))
+}
+
+fn btrfs_using(path: &Path, tool: &std::ffi::OsStr) -> Option<String> {
     let path = std::path::absolute(path).ok()?;
+    let meta = std::fs::symlink_metadata(&path).ok()?;
+    let directory = if meta.is_dir() {
+        path.as_path()
+    } else if meta.is_file() {
+        path.parent()?
+    } else {
+        return None;
+    };
     let id: u64 = read(
-        Command::new("btrfs")
+        Command::new(tool)
             .args(["inspect-internal", "rootid"])
             .arg(&path),
     )?
@@ -40,9 +52,9 @@ fn btrfs(path: &Path) -> Option<String> {
     .parse()
     .ok()?;
     let output = read(
-        Command::new("btrfs")
+        Command::new(tool)
             .args(["subvolume", "list", "-a", "-u", "-q"])
-            .arg(path),
+            .arg(directory),
     )?;
     btrfs_result(id, &output)
 }
@@ -112,6 +124,32 @@ fn zfs(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn file_target_uses_containing_directory_for_listing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let tool = dir.path().join("btrfs");
+        std::fs::write(&tool, concat!(
+            "#!/bin/sh\n",
+            "if [ \"$1\" = inspect-internal ]; then printf '256\\n'; exit 0; fi\n",
+            "[ -d \"$6\" ] || exit 1\n",
+            "printf 'ID 256 gen 7 top level 5 parent_uuid - uuid aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa path live\\n'\n",
+            "printf 'ID 258 gen 7 top level 5 parent_uuid aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa uuid bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb path snapshot\\n'\n",
+        )).unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let path = dir.path().join("file");
+        std::fs::write(&path, b"contents").unwrap();
+        for target in [&path, &dir.path().to_path_buf()] {
+            assert_eq!(
+                btrfs_using(target, tool.as_os_str()).as_deref(),
+                Some("1 direct snapshots found for this btrfs subvolume")
+            );
+        }
+        assert_eq!(std::fs::read(path).unwrap(), b"contents");
+    }
 
     #[test]
     fn snapshots_are_bound_to_source_uuid_not_nearby_subvolumes() {

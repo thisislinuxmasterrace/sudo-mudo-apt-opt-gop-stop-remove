@@ -16,13 +16,17 @@ all notable changes are listed here. the format follows [keep a changelog](https
 
 ### changed
 
-- human output groups targets, risks, confirmation and results, with terminal colors and `NO_COLOR` support.
-- erase runs print one general risk notice instead of repeating every entry's assessment; full facts remain in json, logs and `--explain`.
+- human output groups targets, summary, risks and results, with terminal colors and `NO_COLOR` support. targets are listed in plain text, summaries name only what is there (`1 file, 7 bytes, 1 pass`), and a forced erase prints its note and the erased target without headings.
+- erase runs print one short general risk notice instead of repeating every entry's assessment; full facts remain in json, logs and `--explain`. `-q` also hides that notice; warnings about the given paths remain.
+- `--explain` names found editor backups, repositories and snapshots by path, lists findings before the general limits, and keeps whole-disk erase commands in the documentation.
+- `--help` groups flags by purpose and uses the full lowercase usage line; a wrong or missing word of the command phrase gets one plain message.
+- summaries no longer mark coverage incomplete only because of `--exclude`; os errors are printed without their numbers.
 - internal hard links within one selected recursive tree are supported; excluded or external names remain protected.
 
 ### fixed
 
 - btrfs snapshot advice works for file targets by listing their containing directory.
+- `--explain` no longer says that `.git` is untouched when a recursive erase removes the repository with its history.
 - human summaries no longer present conservative weak verdict counts as separate detected problems.
 - deeply nested trees stop at 64 relative levels instead of exhausting the recursive stack; deeper entries are kept.
 - device interruption messages also read correctly when only one target remains.

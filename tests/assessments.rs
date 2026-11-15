@@ -64,9 +64,7 @@ fn recursive_output_does_not_grow_with_successful_entries() {
     assert!(!tree.exists());
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
-        stderr
-            .matches("note: overwriting does not guarantee erasure")
-            .count(),
+        stderr.matches("note: overwriting is best effort").count(),
         1
     );
     assert!(!stderr.contains("note: assessment:"), "{stderr}");

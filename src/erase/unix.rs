@@ -388,8 +388,9 @@ fn erase_contents(
     }
     if excluded > 0 {
         crate::ui::message!(
-            "kept {}: {excluded} entries excluded by --exclude",
-            shown.display()
+            "kept {}: {} excluded by --exclude",
+            shown.display(),
+            crate::ui::count(excluded as u64, "entry", "entries")
         );
     }
     Ok(excluded > 0 || kept_inside)

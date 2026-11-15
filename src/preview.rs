@@ -249,43 +249,66 @@ impl Summary {
     }
 
     /// one line per kind of thing that will be touched, for the dry run and the prompt.
-    pub fn lines(&self) -> Vec<String> {
-        let mut lines = vec![format!(
-            "files: {}, directories: {}, links: {}, size: {}",
-            self.files,
-            self.dirs,
-            self.links,
-            human_bytes(self.bytes)
-        )];
+    pub fn lines(&self, passes: u32) -> Vec<String> {
+        use crate::ui::count;
+
+        let mut first: Vec<String> = [
+            (self.files, "file", "files"),
+            (self.dirs, "directory", "directories"),
+            (self.links, "link", "links"),
+        ]
+        .into_iter()
+        .filter(|(n, _, _)| *n > 0)
+        .map(|(n, one, many)| count(n, one, many))
+        .collect();
+        if first.is_empty() {
+            first.push("nothing to erase".to_owned());
+        }
+        if self.files > 0 {
+            first.push(human_bytes(self.bytes));
+        }
+        first.push(count(u64::from(passes), "pass", "passes"));
+        let mut lines = vec![first.join(", ")];
         if self.hard_linked > 0 {
             lines.push(format!(
-                "hard-linked files: {} (the other names lose their content too)",
-                self.hard_linked
+                "{}: the other names lose their content too",
+                count(self.hard_linked, "hard-linked file", "hard-linked files")
             ));
         }
         if self.skipped > 0 {
             lines.push(format!(
-                "skipped mount points or other filesystems: {}",
-                self.skipped
+                "{} skipped",
+                count(
+                    self.skipped,
+                    "mount point or other filesystem",
+                    "mount points or other filesystems"
+                )
             ));
         }
         if self.excluded > 0 {
-            lines.push(format!("excluded by --exclude: {}", self.excluded));
+            lines.push(format!(
+                "{} excluded by --exclude",
+                count(self.excluded, "entry", "entries")
+            ));
         }
         if self.kept_dirs > 0 {
             lines.push(format!(
-                "directories kept because of --exclude: {}",
-                self.kept_dirs
+                "{} kept because of --exclude",
+                count(self.kept_dirs, "directory", "directories")
             ));
         }
         if self.refused > 0 {
             lines.push(format!(
-                "refused: mount point given as target: {}",
-                self.refused
+                "{} refused: a mount point or another filesystem",
+                count(self.refused, "target", "targets")
             ));
         }
         if self.unreadable > 0 {
-            lines.push(format!("unreadable entries: {}", self.unreadable));
+            lines.push(count(
+                self.unreadable,
+                "unreadable entry",
+                "unreadable entries",
+            ));
         }
         if self.depth_limited {
             lines.push(format!(
@@ -295,12 +318,13 @@ impl Summary {
         }
         if self.other > 0 {
             lines.push(format!(
-                "special entries (fifo, sockets, devices, unsupported reparse points), which are refused: {}",
-                self.other
+                "{} refused (fifos, sockets, devices, unsupported reparse points)",
+                count(self.other, "special entry", "special entries")
             ));
         }
-        if self.incomplete() {
-            lines.push("assessment coverage: incomplete (skipped, excluded, refused, special or unreadable entries are not fully assessed for overwrite)".to_owned());
+        // excluded entries are left out on purpose, so they alone do not make the human summary incomplete.
+        if self.coverage_limited || self.skipped + self.refused + self.unreadable + self.other > 0 {
+            lines.push("the entries above were not checked for overwrite risks".to_owned());
         }
         lines
     }
@@ -316,7 +340,7 @@ pub(crate) fn human_bytes(bytes: u64) -> String {
         unit += 1;
     }
     if unit == 0 {
-        format!("{bytes} b")
+        crate::ui::count(bytes, "byte", "bytes")
     } else {
         format!("{value:.1} {}", UNITS[unit])
     }

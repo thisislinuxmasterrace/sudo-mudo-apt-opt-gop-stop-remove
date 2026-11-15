@@ -21,8 +21,8 @@ fn exclude_keeps_matching_entries_and_their_directory() {
     let dry = run(&dry_args, "");
     assert_exit(&dry, 0);
     let dry_stdout = String::from_utf8_lossy(&dry.stdout);
-    assert!(dry_stdout.contains("excluded by --exclude: 2"));
-    assert!(dry_stdout.contains("directories kept because of --exclude: 1"));
+    assert!(dry_stdout.contains("2 entries excluded by --exclude"));
+    assert!(dry_stdout.contains("1 directory kept because of --exclude"));
     assert!(erased.exists());
 
     let mut erase_args = args.to_vec();

@@ -46,20 +46,14 @@ pub fn strict_paths<'a>(
 
 /// with no strict path the run asks "continue?". with strict paths the names come first, and
 /// "continue?" follows when some path was not named, so the whole run is confirmed.
-/// the header carries the number of paths, so it is still known when the list is cut.
+/// a cut list ends with the number of paths left out, so the total is still known.
 pub fn confirm(
     paths: &[PathBuf],
     summary: &[String],
-    passes: u32,
     strict: &[(&PathBuf, &preview::Summary)],
     notes: &[String],
 ) -> bool {
-    crate::ui::section("targets", true);
-    let noun = if paths.len() == 1 { "path" } else { "paths" };
-    crate::ui::message!(
-        "the following {} {noun} will be irreversibly erased ({passes} passes):",
-        paths.len()
-    );
+    crate::ui::section("targets, erased permanently", true);
     for path in paths.iter().take(LISTED_PATHS) {
         crate::ui::message!("  {}", path.display());
     }
@@ -70,8 +64,8 @@ pub fn confirm(
     for line in summary {
         crate::ui::message!("  {line}");
     }
-    crate::ui::risks(notes);
-    crate::ui::section("confirm", true);
+    crate::ui::risks(notes, true);
+    crate::ui::message!();
     if strict.is_empty() {
         return prompt::ask("continue?");
     }
@@ -96,21 +90,20 @@ fn confirm_name(path: &Path, part: &preview::Summary) -> bool {
 }
 
 pub fn confirm_wipe(dir: &Path, passes: u32, space: &[String]) -> bool {
-    crate::ui::section("target", true);
-    crate::ui::message!(
-        "the free space of {} will be filled and overwritten ({passes} passes)",
-        dir.display()
-    );
+    crate::ui::section("free space", true);
+    crate::ui::message!("  {}", dir.display());
     crate::ui::section("summary", true);
     for line in space {
         crate::ui::message!("  {line}");
     }
-    crate::ui::section("risks", true);
-    crate::ui::message!(
-        "note: the volume is filled completely for a while, this can take a long time on large disks"
+    crate::ui::message!("  {}", crate::ui::count(passes.into(), "pass", "passes"));
+    crate::ui::risks(
+        &[
+            "note: the volume stays full until the wipe ends, which can take a long time on large disks; other programs writing to it may fail meanwhile".to_owned(),
+        ],
+        true,
     );
-    crate::ui::message!("note: other programs writing to this volume may fail while it is full");
-    crate::ui::section("confirm", true);
+    crate::ui::message!();
     prompt::ask("continue?")
 }
 

@@ -191,8 +191,9 @@ fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
     }
     if excluded > 0 {
         crate::ui::message!(
-            "kept {}: {excluded} entries excluded by --exclude",
-            path.display()
+            "kept {}: {} excluded by --exclude",
+            path.display(),
+            crate::ui::count(excluded as u64, "entry", "entries")
         );
     }
     if excluded > 0 || kept_inside {

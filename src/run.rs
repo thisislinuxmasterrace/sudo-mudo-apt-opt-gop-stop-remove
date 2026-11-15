@@ -89,9 +89,10 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
         return ExitCode::from(EXIT_INVALID);
     }
 
-    let mut notes: Vec<_> = storage::warnings(paths)
+    // warnings about these paths are always shown; the general notes below are left out by `-q -f`.
+    let mut warnings: Vec<_> = storage::warnings(paths)
         .into_iter()
-        .map(|warning| format!("{NAME}: warning: {warning}"))
+        .map(|warning| format!("warning: {warning}"))
         .collect();
 
     // counting walks the whole tree, so it only happens when someone is going to read it.
@@ -108,11 +109,11 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
     let total = counted.as_deref().map(preview::total);
     let summary = total
         .as_ref()
-        .map_or_else(Vec::new, preview::Summary::lines);
+        .map_or_else(Vec::new, |total| total.lines(cli.passes));
 
     if cli.dry_run {
-        for note in &notes {
-            crate::ui::message!("{note}");
+        for warning in &warnings {
+            crate::ui::message!("{warning}");
         }
         if cli.log.is_some() {
             crate::ui::message!("note: --log is not written by --dry-run");
@@ -121,13 +122,9 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
             println!("{}", preview::to_json(paths, cli.passes, total));
             return ExitCode::SUCCESS;
         }
-        crate::ui::section("dry run: targets", false);
+        crate::ui::section("dry run: would erase", false);
         for path in paths {
-            crate::ui::stdout_line(format_args!(
-                "would erase {} ({} passes)",
-                path.display(),
-                cli.passes
-            ));
+            crate::ui::stdout_line(format_args!("  {}", path.display()));
         }
         crate::ui::section("summary", false);
         for line in &summary {
@@ -137,49 +134,41 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
             && let Some(total) = &total
         {
             crate::ui::section("advice", false);
-            for line in explain::advice(&total.assessments) {
+            let targets = explain::Targets {
+                paths,
+                recursive: cli.recursive,
+                excludes: &cli.exclude,
+            };
+            for line in explain::lines(&targets, &total.assessments) {
                 crate::ui::stdout_line(format_args!("{line}"));
-            }
-            for path in paths {
-                if let Some(line) = crate::copies::git::explain(path) {
-                    crate::ui::stdout_line(format_args!("{line}"));
-                }
-                if let Some(line) = crate::snapshots::explain(path) {
-                    crate::ui::stdout_line(format_args!("{line}"));
-                }
             }
         }
         return ExitCode::SUCCESS;
     }
 
-    notes.push("note: overwriting does not guarantee erasure on ssds, with snapshots, or on copy-on-write filesystems; backups and other copies may remain (use --explain for risks or --log for per-entry assessments)".to_owned());
-    if cli.verify {
-        notes.push(
-            "note: --verify reads the data back and compares it; a match does not prove the old data is gone (ssd, copy-on-write, caches and remapped blocks are not checked)"
-        .to_owned());
-    }
     if erase::running_as_root()
         && !cli.allow_protected
         && total.as_ref().is_some_and(|total| total.hard_linked > 0)
     {
-        notes.push(
-            "note: under root, hard-linked files are refused unless every name is selected inside the same tree; external or unproven links need --i-know-what-i-am-doing"
+        warnings.push(
+            "note: under root, hard-linked files are refused unless every name is inside the same erased tree; --i-know-what-i-am-doing allows other links"
         .to_owned());
+    }
+    let mut notes = warnings.clone();
+    notes.push("note: overwriting is best effort: ssds, snapshots, copy-on-write filesystems and backups can keep old data. see --explain.".to_owned());
+    if cli.verify {
+        notes.push(
+            "note: --verify checks the new contents, not whether old copies are gone".to_owned(),
+        );
     }
     let strict = match &counted {
         Some(parts) if cli.recursive => strict_paths(paths, parts),
         _ => Vec::new(),
     };
     if cli.force {
-        if cli.quiet {
-            for note in &notes {
-                crate::ui::message!("{note}");
-            }
-        } else {
-            crate::ui::risks(&notes);
-        }
+        crate::ui::risks(if cli.quiet { &warnings } else { &notes }, false);
     }
-    if !cli.force && !confirm(paths, &summary, cli.passes, &strict, &notes) {
+    if !cli.force && !confirm(paths, &summary, &strict, &notes) {
         crate::ui::message!("aborted, nothing was erased.");
         return ExitCode::from(EXIT_DECLINED);
     }
@@ -218,7 +207,11 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
             return ExitCode::from(EXIT_INCOMPLETE);
         }
         if cli.verbose {
-            crate::ui::message!("erasing {} ({} passes)", path.display(), cli.passes);
+            crate::ui::message!(
+                "erasing {} ({})",
+                path.display(),
+                crate::ui::count(cli.passes.into(), "pass", "passes")
+            );
         }
         let result = erase::erase_path(path, opts, &cli.exclude, log_file.as_ref());
         match &result {
@@ -245,7 +238,7 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
 
     // a line that could not be written leaves its object erased without a line: that is not a success.
     let failed = failed || log_file.as_ref().is_some_and(|log| log.failed());
-    crate::ui::result(erased, kept, failed, cli.quiet);
+    crate::ui::result(paths, erased, kept, failed, cli.quiet, !cli.force);
     if failed {
         ExitCode::from(EXIT_INCOMPLETE)
     } else {
@@ -281,16 +274,16 @@ pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
     let space = space_lines(dir);
 
     if cli.dry_run {
-        crate::ui::section("dry run: free space", false);
-        println!(
-            "would fill and erase the free space of {} ({} passes)",
-            dir.display(),
-            cli.passes
-        );
+        crate::ui::section("dry run: would fill the free space of", false);
+        crate::ui::stdout_line(format_args!("  {}", dir.display()));
         crate::ui::section("summary", false);
         for line in &space {
             crate::ui::stdout_line(format_args!("  {line}"));
         }
+        crate::ui::stdout_line(format_args!(
+            "  {}",
+            crate::ui::count(cli.passes.into(), "pass", "passes")
+        ));
         return ExitCode::SUCCESS;
     }
 
@@ -324,7 +317,9 @@ pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
             ExitCode::from(EXIT_INCOMPLETE)
         }
         Ok(written) => {
-            crate::ui::section("result", true);
+            if !cli.force {
+                crate::ui::section("result", true);
+            }
             crate::ui::message!(
                 "free space of {} erased ({} written)",
                 dir.display(),

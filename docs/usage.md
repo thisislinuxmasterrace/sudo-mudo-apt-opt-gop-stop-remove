@@ -31,19 +31,17 @@ sudo mudo apt opt gop stop remove --verify -f venom.exe # read the last pass bac
 
 ## before anything is erased
 
-human output groups targets, summary, risks, confirmation and result. terminal headings are cyan, warnings yellow, errors red and successful results green. redirected streams stay plain; `NO_COLOR` (including an empty value) or `TERM=dumb` disables color. `-q` hides progress and the successful result footer for path erases; warnings and errors remain. json and log records never contain terminal styling. result counts refer to command-line targets, not files inside a tree; excluded targets are listed separately from erased targets.
-
-on windows, the result says `processed` because accepted deletion may be queued for reboot; read the locked-file notice for its status.
-
 every path is validated first. one refused path aborts the whole run with exit code 1 before anything is touched.
 
-the tool warns that overwriting does not guarantee erasure, including with `-f`. it summarizes files, directories, links, size, hard links, skipped mounts, exclusions, special files and unreadable entries, then asks for confirmation.
+the confirmation lists the targets, a summary (counts, size, passes, and any skipped, excluded or unreadable entries) and the risks, then asks. `--dry-run` prints the same list and summary and changes nothing. `--dry-run --json` adds per-entry [assessments](guarantees-and-limits.md#assessments).
 
-`--dry-run` prints counts and size without changes. text does not count conservative verdicts as separate findings; `--dry-run --json` includes per-entry assessments. directory metadata and children are assessed separately; skipped or unreadable entries limit coverage. use `--explain` for shared limitations and detected storage or copy risks. see [assessments](guarantees-and-limits.md#assessments).
+`--explain` is a dry run with advice. it lists what was found for these paths first: flash or copy-on-write storage, encryption, compression, editor backups by name, git history, sync and trash folders, snapshots. the general limits come last. for git it says whether a recursive erase also removes the repository's `.git` or leaves its history in place. commands are printed, never run. read-only `git`, `btrfs` and `zfs` queries may run for each command-line target, limited to two seconds each; failures stay unknown. git checks the index and reachable history, not renames, reflogs, unreachable objects or remotes. btrfs checks direct snapshots of the subvolume, zfs the snapshots of the containing dataset; the json snapshot fact stays `unknown`. for a device `--explain` only shows the dry run. it cannot be combined with `--json` or `--wipe-free`.
 
-`--explain` adds advice to a dry run; commands are printed, never run. it detects storage concerns, links and some possible copies (see [assessments](guarantees-and-limits.md#assessments)). for a device it only shows the dry run. it cannot be combined with `--json` or `--wipe-free`.
+with `-f` and no `--dry-run`, nothing is counted and no summary is shown: the notes come first, then the result. unix root runs still inspect a tree for internal hard links. the result names a single target and counts several; targets kept only because of `--exclude` are counted separately. on windows it says `processed`, because deletion may be queued for reboot.
 
-with `-f` and no `--dry-run` the preliminary summary is not shown and the tree is not counted. unix root runs still inspect the selected tree first to check internal hard links. real erases print the general risk notice once, without per-entry assessments; errors keep their paths and reasons. use `--log` for per-entry facts, `--explain` for risk advice, and `-v` for operation details.
+`-q` hides the progress line, the general notes and the success line. warnings about the given paths, errors and questions remain. `-v` prints each pass. `--log` keeps per-entry facts.
+
+on a terminal, headings are cyan, warnings yellow, errors red and results green. `NO_COLOR` (even empty) or `TERM=dumb` turns color off. redirected output, json and logs are always plain.
 
 ## confirmation
 
@@ -80,7 +78,7 @@ for unused volume space, see [wipe-free](wipe-free.md). a [log](reference.md#log
 
 ## in scripts
 
-cron and ci have no terminal, so they need `-f`. `-q` turns the progress line off. branch on the exit code:
+cron and ci have no terminal, so they need `-f`. `-q` keeps only warnings about the paths and errors. branch on the exit code:
 
 ```sh
 sudo mudo apt opt gop stop remove -q -f -r /srv/scratch/old-run

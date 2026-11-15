@@ -14,7 +14,6 @@ use std::io;
 use std::path::Path;
 use std::process::ExitCode;
 
-use clap::CommandFactory;
 use clap_complete::Shell;
 
 const BIN: &str = "mudo";
@@ -68,7 +67,7 @@ fn write_man(dir: &Path) -> io::Result<()> {
     create_dir(dir)?;
     let mut page = Vec::new();
     clap_mangen::Man::new(
-        cli::Cli::command()
+        cli::leaf()
             .name("mudo")
             .bin_name("mudo apt opt gop stop remove"),
     )
@@ -92,7 +91,7 @@ fn write_completions(shell: Shell, dir: &Path) -> io::Result<()> {
 
 fn write_fish(dir: &Path) -> io::Result<()> {
     // clap's fish generator stops below three subcommands; gate generated leaf options explicitly.
-    let mut leaf = cli::Cli::command().name(BIN);
+    let mut leaf = cli::leaf().name(BIN);
     let mut options = Vec::new();
     clap_complete::generate(Shell::Fish, &mut leaf, BIN, &mut options);
     let mut script = String::from(

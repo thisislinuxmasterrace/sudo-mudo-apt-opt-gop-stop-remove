@@ -60,7 +60,10 @@ pub(super) fn summary(target: &Target, facts: &Facts, passes: u32) -> Vec<String
             lines.push(format!("  /dev/{name}: {}, {state}", human_bytes(*size)));
         }
     }
-    lines.push(format!("method: overwrite, {passes} passes"));
+    lines.push(format!(
+        "method: overwrite, {}",
+        crate::ui::count(passes.into(), "pass", "passes")
+    ));
     lines.push("destructive overwrite: existing data may be lost; remapped blocks and other copies are not covered".to_owned());
     lines
 }

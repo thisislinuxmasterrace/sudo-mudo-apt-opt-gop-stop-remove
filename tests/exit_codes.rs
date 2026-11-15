@@ -108,7 +108,28 @@ fn incomplete_or_wrong_command_rejects_help_and_version() {
         command.arg("-n");
         let out = command.arg(BIN).args(args).output().unwrap();
         assert_exit(&out, 2);
+        let text = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            text.contains("the command is `sudo mudo apt opt gop stop remove"),
+            "{text}"
+        );
+        assert!(!text.contains("subcommand"), "{text}");
     }
+}
+
+#[test]
+fn argument_errors_use_the_full_lowercase_usage() {
+    let out = run(&["--no-such-flag"], "");
+    assert_exit(&out, 2);
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        text.contains("usage: sudo mudo apt opt gop stop remove [options] [paths]..."),
+        "{text}"
+    );
+    assert!(
+        !text.contains("Usage:") && !text.contains("For more"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -118,6 +139,17 @@ fn help_lists_examples_and_exit_codes() {
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("examples:"));
     assert!(text.contains("exit codes: 0 done"));
+    assert!(text.contains("usage: sudo mudo apt opt gop stop remove"));
+    let short = run(&["-h"], "");
+    let short = String::from_utf8_lossy(&short.stdout);
+    for flag in ["-h, --help", "-V, --version"] {
+        let line = short.lines().find(|line| line.contains(flag)).unwrap();
+        assert!(line.contains("print"), "{line}");
+    }
+    assert!(
+        !text.contains("Options:") && !text.contains("Print"),
+        "{text}"
+    );
 }
 
 #[cfg(not(windows))]

@@ -46,7 +46,7 @@ fn verify_erases_the_file_and_prints_the_note() {
     assert!(!file.exists());
     assert!(
         String::from_utf8_lossy(&out.stderr)
-            .contains("note: --verify reads the data back and compares it")
+            .contains("note: --verify checks the new contents, not whether old copies are gone")
     );
 }
 

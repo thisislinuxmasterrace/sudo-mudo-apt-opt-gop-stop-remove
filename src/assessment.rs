@@ -108,9 +108,9 @@ impl Assessment {
         self.verdict
     }
 
-    /// the kinds of other copies that were found, empty when none were found or none were looked for.
-    pub(crate) fn copy_kinds(&self) -> impl Iterator<Item = copies::Kind> + '_ {
-        self.copies.iter().flatten().map(|copy| copy.kind)
+    /// the other copies that were found, empty when none were found or none were looked for.
+    pub(crate) fn copies(&self) -> impl Iterator<Item = &Found> {
+        self.copies.iter().flatten()
     }
 
     pub(crate) fn from_facts(

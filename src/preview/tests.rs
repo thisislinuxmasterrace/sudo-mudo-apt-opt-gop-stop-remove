@@ -6,9 +6,39 @@ fn count(paths: &[PathBuf], recursive: bool, excludes: &[String]) -> Summary {
 
 #[test]
 fn empty_summary_lines() {
-    assert_eq!(
-        Summary::default().lines(),
-        ["files: 0, directories: 0, links: 0, size: 0 b"]
+    assert_eq!(Summary::default().lines(1), ["nothing to erase, 1 pass"]);
+}
+
+#[test]
+fn summary_names_only_what_is_there() {
+    let summary = Summary {
+        files: 1,
+        bytes: 7,
+        ..Summary::default()
+    };
+    assert_eq!(summary.lines(1), ["1 file, 7 bytes, 1 pass"]);
+    let summary = Summary {
+        dirs: 1,
+        links: 2,
+        ..Summary::default()
+    };
+    assert_eq!(summary.lines(3), ["1 directory, 2 links, 3 passes"]);
+}
+
+#[test]
+fn exclusions_alone_do_not_mark_the_summary_unchecked() {
+    let summary = Summary {
+        files: 1,
+        excluded: 1,
+        kept_dirs: 1,
+        ..Summary::default()
+    };
+    assert!(summary.incomplete());
+    assert!(
+        !summary
+            .lines(1)
+            .iter()
+            .any(|line| line.contains("not checked"))
     );
 }
 
@@ -34,17 +64,17 @@ fn summary_lines_include_counters_and_incomplete_coverage() {
     };
 
     assert_eq!(
-        summary.lines(),
+        summary.lines(1),
         [
-            "files: 2, directories: 3, links: 4, size: 1.5 kib",
-            "hard-linked files: 5 (the other names lose their content too)",
-            "skipped mount points or other filesystems: 6",
-            "excluded by --exclude: 7",
-            "directories kept because of --exclude: 8",
-            "refused: mount point given as target: 9",
-            "unreadable entries: 10",
-            "special entries (fifo, sockets, devices, unsupported reparse points), which are refused: 11",
-            "assessment coverage: incomplete (skipped, excluded, refused, special or unreadable entries are not fully assessed for overwrite)",
+            "2 files, 3 directories, 4 links, 1.5 kib, 1 pass",
+            "5 hard-linked files: the other names lose their content too",
+            "6 mount points or other filesystems skipped",
+            "7 entries excluded by --exclude",
+            "8 directories kept because of --exclude",
+            "9 targets refused: a mount point or another filesystem",
+            "10 unreadable entries",
+            "11 special entries refused (fifos, sockets, devices, unsupported reparse points)",
+            "the entries above were not checked for overwrite risks",
         ]
     );
 }
@@ -61,10 +91,13 @@ fn summary_does_not_present_conservative_verdicts_as_findings() {
         coverage_limited: true,
         ..Summary::default()
     };
-    let mut expected = vec!["files: 0, directories: 0, links: 0, size: 0 b".to_owned()];
-    expected.push("assessment coverage: incomplete (skipped, excluded, refused, special or unreadable entries are not fully assessed for overwrite)".to_owned());
-
-    assert_eq!(summary.lines(), expected);
+    assert_eq!(
+        summary.lines(1),
+        [
+            "nothing to erase, 1 pass",
+            "the entries above were not checked for overwrite risks"
+        ]
+    );
 }
 
 #[test]
@@ -118,12 +151,16 @@ fn excluded_entries_are_counted_and_not_walked() {
     assert_eq!(summary.files, 1);
     assert_eq!(summary.dirs, 1);
     assert_eq!(summary.bytes, 30);
-    let lines = summary.lines();
-    assert!(lines.iter().any(|line| line == "excluded by --exclude: 2"));
+    let lines = summary.lines(1);
     assert!(
         lines
             .iter()
-            .any(|line| line == "directories kept because of --exclude: 1")
+            .any(|line| line == "2 entries excluded by --exclude")
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line == "1 directory kept because of --exclude")
     );
 }
 
@@ -151,7 +188,7 @@ fn without_exclusions_no_line_is_printed() {
 
     assert!(
         summary
-            .lines()
+            .lines(1)
             .iter()
             .all(|line| !line.contains("excluded"))
     );
@@ -196,9 +233,9 @@ fn mount_point_given_as_target_is_refused() {
     assert_eq!(summary.files, 0);
     assert!(
         summary
-            .lines()
+            .lines(1)
             .iter()
-            .any(|line| line.starts_with("refused"))
+            .any(|line| line.starts_with("1 target refused"))
     );
 }
 
@@ -250,7 +287,8 @@ fn json_summary_keeps_non_utf8_paths_distinct_without_filesystem_access() {
 
 #[test]
 fn human_bytes_picks_a_unit() {
-    assert_eq!(human_bytes(512), "512 b");
+    assert_eq!(human_bytes(1), "1 byte");
+    assert_eq!(human_bytes(512), "512 bytes");
     assert_eq!(human_bytes(1536), "1.5 kib");
     assert_eq!(human_bytes(3 * 1024 * 1024), "3.0 mib");
 }

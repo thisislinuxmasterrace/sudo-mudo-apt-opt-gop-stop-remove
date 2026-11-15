@@ -99,7 +99,7 @@ fn repeated_path_is_erased_once() {
     assert_exit(&dry, 0);
     assert_eq!(
         String::from_utf8_lossy(&dry.stdout)
-            .matches("would erase")
+            .matches(path_str(&file))
             .count(),
         1
     );
@@ -120,7 +120,7 @@ fn repeated_path_is_erased_once() {
 fn erase_prints_the_note_once_and_dry_run_does_not() {
     let dir = tempfile::tempdir().unwrap();
     let file = write_file(dir.path(), "a.txt");
-    let note = "note: overwriting does not guarantee erasure";
+    let note = "note: overwriting is best effort";
 
     let dry = run(&["--dry-run", path_str(&file)], "");
     assert!(!String::from_utf8_lossy(&dry.stderr).contains(note));

@@ -4,6 +4,16 @@ mod common;
 use common::*;
 use std::fs;
 
+/// the temporary directory may sit on copy-on-write or unrecognized storage (apfs on macos, btrfs, overlay
+/// in containers); those path-specific warnings are tested elsewhere.
+fn without_storage_warnings(stderr: &[u8]) -> String {
+    String::from_utf8_lossy(stderr)
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("warning:"))
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
 #[test]
 fn dry_run_layout_matches_golden_output() {
     let dir = tempfile::tempdir().unwrap();
@@ -15,52 +25,63 @@ fn dry_run_layout_matches_golden_output() {
         .replace(path_str(&file), "<file>");
     assert_eq!(
         actual,
-        "\ndry run: targets\nwould erase <file> (1 passes)\n\nsummary\n  files: 1, directories: 0, links: 0, size: 14 b\n"
+        "dry run: would erase\n  <file>\n\nsummary\n  1 file, 14 bytes, 1 pass\n"
     );
     assert_eq!(fs::read(file).unwrap(), b"sensitive data");
 }
 
 #[test]
-fn quiet_success_has_no_result_and_normal_footer_matches_golden_output() {
+fn forced_erase_prints_the_note_and_names_the_target() {
     let dir = tempfile::tempdir().unwrap();
-    let file = write_file(dir.path(), "data");
-    let out = run(&["-fq", path_str(&file)], "");
-    assert_exit(&out, 0);
-    let text = String::from_utf8(out.stderr).unwrap();
-    assert!(!text.contains("\nresult\n"));
-    assert!(text.contains("overwriting does not guarantee"));
     let file = write_file(dir.path(), "data");
     let out = run(&["-f", path_str(&file)], "");
     assert_exit(&out, 0);
-    let text = String::from_utf8(out.stderr).unwrap();
-    let (_, footer) = text.split_once("\nresult\n").unwrap();
+    let action = if cfg!(windows) { "processed" } else { "erased" };
     assert_eq!(
-        footer,
-        if cfg!(windows) {
-            "done: 1 target processed\n"
-        } else {
-            "done: 1 target erased\n"
-        }
+        without_storage_warnings(&out.stderr),
+        format!(
+            "note: overwriting is best effort: ssds, snapshots, copy-on-write filesystems and backups can keep old data. see --explain.\n{action} {}\n",
+            file.display()
+        )
     );
 }
 
 #[test]
-fn confirmation_groups_targets_summary_risks_and_question() {
+fn quiet_forced_erase_prints_nothing_without_specific_warnings() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "data");
+    let out = run(&["-fq", "--verify", path_str(&file)], "");
+    assert_exit(&out, 0);
+    assert_eq!(without_storage_warnings(&out.stderr), "");
+    assert!(!file.exists());
+}
+
+#[test]
+fn confirmation_matches_golden_output() {
     let dir = tempfile::tempdir().unwrap();
     let file = write_file(dir.path(), "data");
     let out = run(&[path_str(&file)], "n\n");
     assert_exit(&out, 3);
-    let text = String::from_utf8_lossy(&out.stderr);
-    let mut end = 0;
-    for heading in ["\ntargets\n", "\nsummary\n", "\nrisks\n", "\nconfirm\n"] {
-        let at = text
-            .find(heading)
-            .unwrap_or_else(|| panic!("missing {heading:?}: {text}"));
-        assert!(at >= end, "{text}");
-        end = at + heading.len();
-    }
-    assert!(!text.contains('\x1b'));
+    let text = without_storage_warnings(&out.stderr).replace(path_str(&file), "<file>");
+    assert_eq!(
+        text,
+        "targets, erased permanently\n  <file>\n\nsummary\n  1 file, 14 bytes, 1 pass\n\nrisks\n  note: overwriting is best effort: ssds, snapshots, copy-on-write filesystems and backups can keep old data. see --explain.\n\ncontinue? [y/N] aborted, nothing was erased.\n"
+    );
     assert!(file.exists());
+}
+
+#[test]
+fn excluded_entries_alone_do_not_mark_the_summary_unchecked() {
+    let dir = tempfile::tempdir().unwrap();
+    let tree = make_tree(dir.path(), "tree", 2);
+    let out = run(
+        &["--dry-run", "-r", "--exclude", "f0.txt", path_str(&tree)],
+        "",
+    );
+    assert_exit(&out, 0);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("1 entry excluded by --exclude"), "{text}");
+    assert!(!text.contains("not checked"), "{text}");
 }
 
 #[test]
@@ -80,9 +101,10 @@ fn result_distinguishes_erased_and_excluded_targets() {
     );
     assert_exit(&out, 0);
     let action = if cfg!(windows) { "processed" } else { "erased" };
-    assert!(String::from_utf8_lossy(&out.stderr).contains(&format!(
-        "done: 1 target {action}, 1 target kept by --exclude"
-    )));
+    assert!(
+        String::from_utf8_lossy(&out.stderr)
+            .contains(&format!("{action} 1 target; 1 kept because of --exclude"))
+    );
     assert!(!erased.exists());
     assert!(tree.join("f0.txt").exists());
 }
@@ -96,8 +118,14 @@ fn incomplete_tree_does_not_get_a_success_footer() {
     let out = run(&["-rf", path_str(&tree)], "");
     assert_exit(&out, 4);
     let text = String::from_utf8_lossy(&out.stderr);
-    assert!(text.contains("incomplete: 0 targets erased"), "{text}");
-    assert!(!text.contains("done:"), "{text}");
+    assert!(
+        text.contains("incomplete: 0 of 1 target erased, see the errors above"),
+        "{text}"
+    );
+    assert!(
+        !text.contains(&format!("erased {}", tree.display())),
+        "{text}"
+    );
     assert!(tree.join("pipe").exists());
 }
 

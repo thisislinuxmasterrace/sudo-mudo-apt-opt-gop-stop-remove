@@ -2,6 +2,17 @@
 
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+// a heading is separated from earlier output by a blank line, but the first line of a stream is not blank.
+static STDOUT_USED: AtomicBool = AtomicBool::new(false);
+static STDERR_USED: AtomicBool = AtomicBool::new(false);
+
+fn mark_used(stderr: bool) -> bool {
+    let used = if stderr { &STDERR_USED } else { &STDOUT_USED };
+    used.swap(true, Ordering::Relaxed)
+}
 
 macro_rules! message {
     () => { $crate::ui::diagnostic(format_args!("")) };
@@ -16,6 +27,7 @@ pub(crate) use failure;
 
 #[derive(Clone, Copy)]
 enum Tone {
+    Plain,
     Heading,
     Info,
     Warning,
@@ -72,6 +84,7 @@ fn styled(text: &str, tone: Tone, color: bool) -> String {
         return text.to_owned();
     }
     let code = match tone {
+        Tone::Plain => return text.to_owned(),
         Tone::Heading => "1;36",
         Tone::Info => "2",
         Tone::Warning => "33",
@@ -81,9 +94,8 @@ fn styled(text: &str, tone: Tone, color: bool) -> String {
     format!("\x1b[{code}m{text}\x1b[0m")
 }
 
-pub(crate) fn diagnostic(args: fmt::Arguments<'_>) {
-    let text = args.to_string();
-    let tone = if text.starts_with("note:")
+fn tone_of(text: &str) -> Tone {
+    if text.starts_with("note:")
         || text.starts_with("warning:")
         || text.contains(": warning:")
         || text.starts_with("kept ")
@@ -91,45 +103,86 @@ pub(crate) fn diagnostic(args: fmt::Arguments<'_>) {
     {
         Tone::Warning
     } else if text.starts_with("erasing ")
-        || text.starts_with("  ")
-        || text.starts_with("the following ")
-        || text.starts_with("the free space of ")
+        || text.starts_with("  pass ")
+        || text.starts_with("    ")
     {
         Tone::Info
-    } else if text.starts_with("erased ") || text.starts_with("free space of ") {
+    } else if text.is_empty() || text.starts_with("  ") || text.starts_with("the following ") {
+        Tone::Plain
+    } else if text.starts_with("erased ")
+        || text.starts_with("processed ")
+        || text.starts_with("free space of ")
+    {
         Tone::Success
     } else {
         Tone::Error
-    };
-    let _ = writeln!(io::stderr().lock(), "{}", styled(&text, tone, colors(true)));
+    }
 }
 
-pub(crate) fn error(args: fmt::Arguments<'_>) {
+/// os error texts start with a capital and end with ` (os error N)`; the messages here are lowercase and
+/// the number does not help a reader.
+fn tidy(text: &str) -> String {
+    const MARK: &str = " (os error ";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(MARK) {
+        let tail = &rest[at + MARK.len()..];
+        let Some(end) = tail
+            .find(')')
+            .filter(|&end| end > 0 && tail[..end].bytes().all(|b| b.is_ascii_digit() || b == b'-'))
+        else {
+            break;
+        };
+        let head = &rest[..at];
+        let start = head.rfind(": ").map_or(0, |colon| colon + 2);
+        out.push_str(&head[..start]);
+        let reason = head[start..].trim_end_matches('.');
+        let mut chars = reason.chars();
+        if let Some(first) = chars.next() {
+            out.extend(first.to_lowercase());
+            out.push_str(chars.as_str());
+        }
+        rest = &tail[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn write_stderr(text: &str, tone: Tone) {
+    mark_used(true);
     let _ = writeln!(
         io::stderr().lock(),
         "{}",
-        styled(&args.to_string(), Tone::Error, colors(true))
+        styled(&tidy(text), tone, colors(true))
     );
 }
 
+pub(crate) fn diagnostic(args: fmt::Arguments<'_>) {
+    let text = args.to_string();
+    write_stderr(&text, tone_of(&text));
+}
+
+pub(crate) fn error(args: fmt::Arguments<'_>) {
+    write_stderr(&args.to_string(), Tone::Error);
+}
+
 pub(crate) fn section(title: &str, stderr: bool) {
+    let gap = if mark_used(stderr) { "\n" } else { "" };
     let title = styled(title, Tone::Heading, colors(stderr));
     if stderr {
-        let _ = writeln!(io::stderr().lock(), "\n{title}");
+        let _ = writeln!(io::stderr().lock(), "{gap}{title}");
     } else {
-        let _ = writeln!(io::stdout().lock(), "\n{title}");
+        let _ = writeln!(io::stdout().lock(), "{gap}{title}");
     }
 }
 
 pub(crate) fn stdout_line(args: fmt::Arguments<'_>) {
-    let _ = writeln!(
-        io::stdout().lock(),
-        "{}",
-        styled(&args.to_string(), Tone::Info, colors(false))
-    );
+    mark_used(false);
+    let _ = writeln!(io::stdout().lock(), "{args}");
 }
 
 pub(crate) fn prompt(text: &str) {
+    mark_used(true);
     let mut out = io::stderr().lock();
     let _ = write!(out, "{}", styled(text, Tone::Heading, colors(true)));
     let _ = out.flush();
@@ -140,38 +193,72 @@ pub(crate) fn stderr_colors() -> bool {
 }
 
 pub(crate) fn progress(text: &str, color: bool) -> String {
+    mark_used(true);
     styled(text, Tone::Heading, color)
 }
 
-pub(crate) fn risks(notes: &[String]) {
+/// `1 pass`, `3 passes`: a count with its noun in the right number.
+pub(crate) fn count(n: u64, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+/// the notes before an erase. under a heading they are indented like the other sections.
+pub(crate) fn risks(notes: &[String], heading: bool) {
     if notes.is_empty() {
         return;
     }
-    section("risks", true);
+    if heading {
+        section("risks", true);
+    }
+    let indent = if heading { "  " } else { "" };
     for note in notes {
-        diagnostic(format_args!("{note}"));
+        write_stderr(&format!("{indent}{note}"), Tone::Warning);
     }
 }
 
-pub(crate) fn result(erased: usize, kept: usize, failed: bool, quiet: bool) {
+/// the last line of a path erase. one target is named; several are counted.
+pub(crate) fn result(
+    targets: &[PathBuf],
+    erased: usize,
+    kept: usize,
+    failed: bool,
+    quiet: bool,
+    heading: bool,
+) {
     if quiet && !failed {
         return;
     }
-    section("result", true);
-    let (label, tone) = if failed {
-        ("incomplete", Tone::Error)
-    } else {
-        ("done", Tone::Success)
-    };
-    let noun = if erased == 1 { "target" } else { "targets" };
+    if heading {
+        section("result", true);
+    }
     // windows can accept deletion queued for reboot; successful handling is not immediate removal.
     let action = if cfg!(windows) { "processed" } else { "erased" };
-    let mut text = format!("{label}: {erased} {noun} {action}");
-    if kept > 0 {
-        let noun = if kept == 1 { "target" } else { "targets" };
-        text.push_str(&format!(", {kept} {noun} kept by --exclude"));
-    }
-    let _ = writeln!(io::stderr().lock(), "{}", styled(&text, tone, colors(true)));
+    let total = targets.len() as u64;
+    let (text, tone) = if failed {
+        (
+            format!(
+                "incomplete: {erased} of {} {action}, see the errors above",
+                count(total, "target", "targets")
+            ),
+            Tone::Error,
+        )
+    } else if kept == 0 {
+        let what = match targets {
+            [only] => only.display().to_string(),
+            _ => count(total, "target", "targets"),
+        };
+        (format!("{action} {what}"), Tone::Success)
+    } else {
+        (
+            format!(
+                "{action} {}; {} kept because of --exclude",
+                count(erased as u64, "target", "targets"),
+                kept
+            ),
+            Tone::Success,
+        )
+    };
+    write_stderr(&text, tone);
 }
 
 #[cfg(test)]
@@ -195,6 +282,35 @@ mod tests {
             styled(text, Tone::Error, true),
             format!("\x1b[1;31m{text}\x1b[0m")
         );
+    }
+
+    #[test]
+    fn os_error_numbers_are_dropped_and_the_reason_is_lowercase() {
+        assert_eq!(
+            tidy("mudo: Some/Path: No such file or directory (os error 2)"),
+            "mudo: Some/Path: no such file or directory"
+        );
+        assert_eq!(
+            tidy("mudo: x: Access is denied. (os error 5); the rest was kept"),
+            "mudo: x: access is denied; the rest was kept"
+        );
+        assert_eq!(tidy("mudo: x (os error y)"), "mudo: x (os error y)");
+        assert_eq!(tidy("plain text"), "plain text");
+    }
+
+    #[test]
+    fn listed_paths_are_plain_and_pass_details_are_dim() {
+        assert!(matches!(tone_of("  venom.exe"), Tone::Plain));
+        assert!(matches!(tone_of("  pass 1/2: zeros"), Tone::Info));
+        assert!(matches!(tone_of("erased venom.exe"), Tone::Success));
+        assert!(matches!(tone_of("note: x"), Tone::Warning));
+    }
+
+    #[test]
+    fn counts_use_the_right_number() {
+        assert_eq!(count(1, "pass", "passes"), "1 pass");
+        assert_eq!(count(0, "file", "files"), "0 files");
+        assert_eq!(count(3, "pass", "passes"), "3 passes");
     }
 
     #[test]

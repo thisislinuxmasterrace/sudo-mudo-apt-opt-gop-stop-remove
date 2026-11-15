@@ -20,11 +20,11 @@ pub(crate) fn explain(path: &Path) -> Option<String> {
     let result = match filesystem.as_str() {
         "btrfs" => btrfs(path),
         "zfs" => zfs(path),
-        "apfs" => Some("snapshot check unknown: apfs/time machine needs a native volume-specific check".to_owned()),
+        "apfs" => Some("apfs and time machine snapshots are not checked; `tmutil listlocalsnapshots /` lists local ones".to_owned()),
         _ => return None,
-    }.unwrap_or_else(|| "snapshot check unknown: the tool is unavailable, timed out or did not identify this target's storage".to_owned());
+    }.unwrap_or_else(|| "could not check: the tool is unavailable, timed out or did not identify the storage".to_owned());
     Some(format!(
-        "  - {}: {result}. snapshot contents and other backups are not checked; no matches do not prove absence of copies.",
+        "  - snapshots: {}: {result}. other backups are not checked.",
         path.display()
     ))
 }
@@ -82,9 +82,13 @@ fn btrfs_result(id: u64, output: &str) -> Option<String> {
         .filter(|row| value(row, "parent_uuid").as_deref() == Some(&uuid))
         .count();
     Some(if count > 0 {
-        format!("{count} direct snapshots found for this btrfs subvolume")
+        format!(
+            "{} of its btrfs subvolume may keep older versions; remove them first",
+            crate::ui::count(count as u64, "direct snapshot", "direct snapshots")
+        )
     } else {
-        "no direct snapshots found for this btrfs subvolume; older snapshot ancestry remains unknown".to_owned()
+        "no direct snapshots of its btrfs subvolume found; older snapshot ancestry is unknown"
+            .to_owned()
     })
 }
 
@@ -115,9 +119,12 @@ fn zfs(path: &Path) -> Option<String> {
         })
         .count();
     Some(if count > 0 {
-        format!("{count} snapshots found for zfs dataset {dataset}")
+        format!(
+            "{} of zfs dataset {dataset} may keep older versions; remove them first",
+            crate::ui::count(count as u64, "snapshot", "snapshots")
+        )
     } else {
-        format!("no snapshots found for zfs dataset {dataset}")
+        format!("no snapshots of zfs dataset {dataset} found")
     })
 }
 
@@ -145,7 +152,9 @@ mod tests {
         for target in [&path, &dir.path().to_path_buf()] {
             assert_eq!(
                 btrfs_using(target, tool.as_os_str()).as_deref(),
-                Some("1 direct snapshots found for this btrfs subvolume")
+                Some(
+                    "1 direct snapshot of its btrfs subvolume may keep older versions; remove them first"
+                )
             );
         }
         assert_eq!(std::fs::read(path).unwrap(), b"contents");
@@ -159,7 +168,7 @@ mod tests {
         );
         assert_eq!(
             btrfs_result(256, &output).unwrap(),
-            "1 direct snapshots found for this btrfs subvolume"
+            "1 direct snapshot of its btrfs subvolume may keep older versions; remove them first"
         );
         assert!(btrfs_result(5, &output).is_none());
         assert!(btrfs_result(256, "unrecognized output").is_none());

@@ -4,28 +4,28 @@ every flag, exit code and file format. `sudo mudo apt opt gop stop remove --help
 
 ## flags
 
-usage: `sudo mudo apt opt gop stop remove [OPTIONS] [PATHS]...`
+usage: `sudo mudo apt opt gop stop remove [options] [paths]...`
 
 | flag | default | meaning |
 | --- | --- | --- |
-| `[PATHS]...` | | files to erase. required unless `--wipe-free` or `--files-from` is given. a block device switches the run to [device erase](devices.md) |
+| `[PATHS]...` | | files to erase; directories need `-r`. required unless `--wipe-free` or `--files-from` is given. a block device switches the run to [device erase](devices.md) |
 | `-r`, `--recursive` | off | erase directories and their contents |
-| `-n`, `--passes <N>` | 1 | number of overwrite passes, at least 1. zeros, ones, random, repeating; the last is random |
-| `--zero` | off | add one final zero pass after the requested passes. summaries and logs include it in the total; it does not improve erasure guarantees |
-| `--dry-run` | off | show what would be erased and change nothing |
-| `--explain` | off | a dry run that also prints advice for the paths: what an overwrite can and cannot do, and commands that would help (printed, never run) |
-| `--json` | off | with `--dry-run`: the summary as one line of json on stdout. needs `--dry-run` |
-| `-f`, `--force` | off | ask no questions (confirmation, lock holders, reboot). warnings are still printed. does not lift refusals |
-| `--exclude <GLOB>` | | skip matching entries inside `-r` trees. repeatable. needs `-r` |
+| `--exclude <GLOB>` | | skip matching entries inside `-r` trees. repeatable. needs `-r`. see [exclude globs](#exclude-globs) |
 | `--files-from <FILE>` | | read more paths from `FILE`, one per line. `-` is stdin |
 | `-0`, `--null` | off | with `--files-from`: entries are separated by nul bytes |
-| `--log <FILE>` | | write a json lines log. the file must not exist |
-| `--verify` | off | read the last pass back and compare. see [guarantees and limits](guarantees-and-limits.md#what---verify-proves) |
-| `--wipe-free <DIR>` | | erase the free space of the filesystem holding `DIR`. see [wipe-free](wipe-free.md) |
-| `-v`, `--verbose` | off | print progress for each pass |
-| `-q`, `--quiet` | off | no progress line. warnings and errors are still printed |
-| `--kill-holders` | off | close processes that hold a locked file. windows only; elsewhere exit code 2 |
-| `--i-know-what-i-am-doing` | off | allow erasing protected system paths, and hard-linked files under root. a warning is printed every time. `-f` does not imply it |
+| `--wipe-free <DIR>` | | erase the free space of the filesystem holding `DIR` instead of files. see [wipe-free](wipe-free.md) |
+| `--dry-run` | off | show what would be erased and change nothing |
+| `--explain` | off | a dry run with advice for the paths; commands are printed, never run. see [usage](usage.md#before-anything-is-erased) |
+| `--json` | off | with `--dry-run`: the summary as one line of json on stdout |
+| `-n`, `--passes <N>` | 1 | number of overwrite passes, at least 1. zeros, ones, random, repeating; the last is random |
+| `--zero` | off | end with one extra pass of zeros. summaries and logs count it; it does not make erasure more reliable |
+| `--verify` | off | read each file back after the last pass; a file that differs is kept. see [guarantees and limits](guarantees-and-limits.md#what---verify-proves) |
+| `--log <FILE>` | | record every erased object as json lines. the file must not exist. see [log format](#log-format) |
+| `-f`, `--force` | off | ask no questions (confirmation, lock holders, reboot). refusals still apply |
+| `--i-know-what-i-am-doing` | off | allow protected system paths, hard-linked files under root and some [device refusals](devices.md#refusals). a warning is printed every time. `-f` does not imply it |
+| `--kill-holders` | off | close the programs that hold a locked file. windows only; elsewhere exit code 2 |
+| `-v`, `--verbose` | off | print each pass |
+| `-q`, `--quiet` | off | print only warnings about the paths, errors and questions: no progress line, general notes or success line |
 | `-h`, `--help` | | print help (`-h` short, `--help` long) |
 | `-V`, `--version` | | print the version |
 
@@ -53,7 +53,7 @@ with `-f` there is no question, so code 3 cannot come from a declined question. 
 - `*` matches any characters except `/`. `?` matches one character except `/`. there are no other wildcards, so `[` is an ordinary character and a name that contains `*` or `?` cannot be matched literally.
 - a leading `./` and a trailing `/` are removed, so `build/` is `build`. an empty pattern, `.` and an absolute path are refused (exit code 2).
 - command-line arguments are never excluded.
-- an excluded entry is neither erased nor walked. the directories that hold it are kept and the run still ends with exit code 0. the summary shows `excluded by --exclude` and `directories kept because of --exclude`.
+- an excluded entry is neither erased nor walked. the directories that hold it are kept and the run still ends with exit code 0. the summary counts the excluded entries and the kept directories.
 
 ## path lists
 
@@ -84,7 +84,7 @@ with `-f` there is no question, so code 3 cannot come from a declined question. 
 | `detail` | the warning or error text, empty when there is none |
 | `verdict` | ordinary file runs: `weak` or `cosmetic`; `effective` is reserved and never issued automatically |
 | `reasons` | array of assessment reasons, separate from the operation result |
-| `facts` | `filesystem` (name or `null`), `medium` (`flash`, `rotational`, `unknown`), `compression` (`enabled`, `not_supported` or `unknown`), `snapshots` (`unknown`), `encryption` (`dm_crypt`, `ecryptfs`, `none_detected` or `not_checked`), `other_copies` (`found`, `none_found` or `not_checked`), `copies` (array of `{"kind", "path"}` with `kind` one of `git_work_tree`, `sync_folder`, `trash`, `editor_backup`; empty unless `other_copies` is `found`) |
+| `facts` | `filesystem` (name or `null`), `medium` (`flash`, `rotational`, `unknown`), `compression` (`enabled`, `not_supported` or `unknown`), `snapshots` (`unknown`), `encryption` (`dm_crypt`, `ecryptfs`, `fscrypt`, `fscrypt_dm_crypt`, `none_detected` or `not_checked`), `other_copies` (`found`, `none_found` or `not_checked`), `copies` (array of `{"kind", "path"}` with `kind` one of `git_work_tree`, `sync_folder`, `trash`, `editor_backup`; empty unless `other_copies` is `found`) |
 
 assessment fields are collected before rename or deletion, even though the line is written afterwards. directory assessments describe metadata only; children have their own records. redundant internal hard-link names record `passes: 0` and an unlink-only detail; these records do not claim that the remaining name was successfully overwritten. uninspected or skipped entries do not establish overwrite effectiveness. see [assessments](guarantees-and-limits.md#assessments). device records keep their existing format.
 
@@ -98,14 +98,6 @@ assessment fields are collected before rename or deletion, even though the line 
 
 both the dry-run object and every log record include `schema_version: 1`. records from older versions have no version field. readers should ignore unknown fields within a supported version; incompatible field changes will increment the schema version, independently of the program version.
 
-linux encryption facts also recognize `fscrypt` through supported statx attributes and `fscrypt_dm_crypt` when both file and volume encryption are detected. unknown attributes do not prove absence. macos and windows compression flags can establish `enabled`; an unset flag stays `unknown`.
-
-`--explain` also checks each command-line target with read-only git or btrfs/zfs tools when applicable. each tool call has a two-second limit and bounded output; unavailable tools, errors and incomplete results stay unknown. git distinguishes the index from reachable history at the same path; it does not follow renames or check reflogs, unreachable objects or remotes. btrfs checks direct snapshot parent uuids; zfs checks snapshots of the containing mounted dataset. these extra details are human advice; the json snapshot fact remains `unknown`.
-
-recursive walks stop beyond 64 relative path levels, reporting incomplete coverage or an erase error and keeping deeper entries. descriptor exhaustion also stops the affected traversal. `-f` does not bypass these limits.
-
-windows file erasure includes named data streams; a locked or changed stream keeps the file with an error. directories with named streams are refused. preview and log sizes describe the default stream only, excluding additional stream bytes.
-
 `--dry-run --json` prints one line of json on stdout instead of the text summary:
 
 | key | value |
@@ -115,7 +107,7 @@ windows file erasure includes named data streams; a locked or changed stream kee
 | `passes` | number of passes |
 | `files`, `dirs`, `links` | counts |
 | `objects` | files, dirs and links together |
-| `bytes` | total size |
+| `bytes` | total size. on windows, of the default data streams only |
 | `hard_linked` | hard-linked files |
 | `skipped` | mount points and other filesystems skipped |
 | `refused`, `unreadable`, `other` | refused entries, entries that could not be read, special files |
@@ -129,6 +121,10 @@ windows file erasure includes named data streams; a locked or changed stream kee
 ## progress
 
 a progress line is drawn on stderr during long writes (the overwrite of a file, `--wipe-free`), only when stderr is a terminal, at most twice a second. `-q` turns it off. it never changes what is erased or the exit code.
+
+## depth limit
+
+recursive walks stop beyond 64 relative path levels: the preview reports deeper entries as not checked, the erase reports an error and keeps them. running out of file descriptors also stops the affected walk. `-f` does not lift these limits.
 
 ## man page and completions
 

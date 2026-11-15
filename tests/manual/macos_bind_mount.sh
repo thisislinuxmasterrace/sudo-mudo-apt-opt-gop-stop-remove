@@ -2,9 +2,9 @@
 # manual check for macos: a walk with -r must not enter a bind mount or touch its source.
 #
 # what it checks:
-#   A. --dry-run -r: exit 0; the summary skips the mount point ("skipped mount points or other
-#      filesystems: 1") and counts only own.txt (files: 1, directories: 1); the contents of source
-#      are not counted; nothing changes.
+#   A. --dry-run -r: exit 0; the summary skips the mount point ("1 mount point or other filesystem
+#      skipped") and counts only own.txt ("1 file, 1 directory"); the contents of source are not
+#      counted; nothing changes.
 #   B. -f -r: exit 4 (tree is kept because a mount point inside it was skipped); own.txt is removed;
 #      bind is still a directory and a mount point; keep-a.txt and keep-b.txt are there, sha256 unchanged.
 #
@@ -128,13 +128,11 @@ out_a=$(sudo "$BIN" apt opt gop stop remove --dry-run -r "$work/tree" 2>&1) || c
 echo "$out_a"
 echo "exit code: $code (expected 0)"
 [ "$code" -eq 0 ] || fail "dry run: exit $code, expected 0"
-# anchored at the end of the line so that ": 1" does not also match ": 10"
-grep -q 'skipped mount points or other filesystems: 1$' <<< "$out_a" \
-    || fail "dry run: no line \"skipped mount points or other filesystems: 1\""
-case "$out_a" in
-    *"files: 1, directories: 1, links: 0, "*) ;;
-    *) fail "dry run: summary is not \"files: 1, directories: 1\" (the bind mount or the source contents were counted)" ;;
-esac
+# anchored at the start of the line so that "1 " does not also match "11 "
+grep -q '^  1 mount point or other filesystem skipped$' <<< "$out_a" \
+    || fail "dry run: no line \"1 mount point or other filesystem skipped\""
+grep -q '^  1 file, 1 directory, ' <<< "$out_a" \
+    || fail "dry run: summary is not \"1 file, 1 directory\" (the bind mount or the source contents were counted)"
 [ -f "$work/tree/own.txt" ] || fail "dry run: own.txt is gone, but a dry run must not change anything"
 check_sources "dry run"
 

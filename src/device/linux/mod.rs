@@ -69,7 +69,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         }
         if cli.explain {
             crate::ui::section("device advice", true);
-            crate::ui::message!("{}:", target.shown.display());
+            crate::ui::message!("  {}:", target.shown.display());
             for line in super::advice::lines(target.partition, facts.rotational != "1") {
                 crate::ui::message!("  - {line}");
             }
@@ -109,12 +109,8 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
             crate::ui::message!("note: --log is not written by --dry-run");
         }
         for (target, facts) in targets.iter().zip(&states) {
-            crate::ui::section("dry run: device", false);
-            println!(
-                "would erase {} ({} passes)",
-                target.shown.display(),
-                cli.passes
-            );
+            crate::ui::section("dry run: would erase device", false);
+            crate::ui::stdout_line(format_args!("  {}", target.shown.display()));
             crate::ui::section("summary", false);
             for line in summary(target, facts, cli.passes) {
                 crate::ui::stdout_line(format_args!("  {line}"));
@@ -149,15 +145,12 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
 
     for (target, facts) in targets.iter().zip(&states) {
         crate::ui::section("device", true);
-        crate::ui::message!(
-            "the following device will be irreversibly erased ({} passes):",
-            cli.passes
-        );
+        crate::ui::message!("the following device will be irreversibly erased:");
         for line in summary(target, facts, cli.passes) {
             crate::ui::message!("  {line}");
         }
         let question = format!("type the device path ({}) to erase it:", target.typed);
-        crate::ui::section("confirm", true);
+        crate::ui::message!();
         if !prompt::ask_exact(&question, &target.typed) {
             crate::ui::message!("aborted, nothing was erased.");
             return ExitCode::from(EXIT_DECLINED);
@@ -266,7 +259,10 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
             }
         };
         if cli.verbose {
-            crate::ui::message!("erasing {shown} ({} passes)", cli.passes);
+            crate::ui::message!(
+                "erasing {shown} ({})",
+                crate::ui::count(cli.passes.into(), "pass", "passes")
+            );
         }
         match overwrite(
             file,
@@ -283,7 +279,10 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
                     log.record(&target.shown, kind, facts.size, Outcome::Ok, "");
                 }
                 crate::ui::section("result", true);
-                crate::ui::message!("erased {shown} ({} passes)", cli.passes);
+                crate::ui::message!(
+                    "erased {shown} ({})",
+                    crate::ui::count(cli.passes.into(), "pass", "passes")
+                );
             }
             Err(err) if err.kind() == io::ErrorKind::Interrupted => {
                 if let Some(log) = &log_file {

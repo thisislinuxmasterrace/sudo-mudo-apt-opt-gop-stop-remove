@@ -53,7 +53,7 @@ a mismatch keeps the file under its name and returns exit 4; other paths continu
 
 ## other limits
 
-- **ntfs streams:** named file data streams are opened and checked before writing, overwritten and optionally verified before file deletion. a locked or changed stream keeps the file with an error. directories with named streams are refused. concurrent stream changes are not atomic with deletion. native validation of this version is required; older versions overwrote only the default stream.
+- **ntfs streams:** named file data streams are opened and checked before writing, overwritten and optionally verified before file deletion. a locked or changed stream keeps the file with an error. directories with named streams are refused. concurrent stream changes are not atomic with deletion. preview and log sizes count the default stream only. versions before 0.2.0 overwrote only the default stream.
 - **compression:** rewritten data may occupy new clusters, leaving old ones behind.
 - **interrupts:** a file may be partly overwritten. a second signal or abrupt stop can leave its hidden name. see [interrupts](usage.md#interrupts).
 - **hard links:** names share data. unix refuses external or unproven links under root unless explicitly overridden; proven internal links are removed before overwriting the last name. see [safety](safety.md#hard-links).
@@ -64,6 +64,13 @@ a mismatch keeps the file under its name and returns exit 4; other paths continu
 
 deleting files or filling free space is not a whole-device sanitization method. consider encryption enabled before sensitive data was written, or the drive's own erase procedure. cryptographic erasure requires removing every usable key copy.
 
+the drive's own erase works on the whole disk and destroys everything on it, the system disk included. check the device name first; `sudo mudo apt opt gop stop remove` never runs these commands:
+
+- nvme: `nvme sanitize /dev/<disk> --sanact=2` or `nvme format /dev/<disk> --ses=1`.
+- sata ssd: `hdparm --user-master u --security-set-pass <password> /dev/<disk>`, then `hdparm --user-master u --security-erase <password> /dev/<disk>`. an interrupted run or a frozen drive can leave it password-locked.
+- luks volume: `cryptsetup luksErase /dev/<device>` removes every key slot. the volume stays readable to anyone with a header or key backup.
+- usb sticks and sd cards have no such commands.
+
 [linux device mode](devices.md) overwrites the named disk or partition, not space outside it. it is experimental, refuses ssds by default and does not use drive-level erase commands.
 
 ## what is not verified
@@ -72,4 +79,4 @@ windows checks cover hosted ci and an isolated windows 11 vm: locks, verificatio
 
 still unverified: real block-device erasure; antivirus/cloud-provider behavior; refs and compressed ntfs; windows log identity and volume mount points; macos bind mounts and mount-query failures on hardware; bsd; real-terminal progress and verification throughput.
 
-recursive walks have finite stack and descriptor limits. descriptor errors are reported, but stack exhaustion can abort before cleanup. unlimited nesting is not supported.
+recursive walks stop at the [depth limit](reference.md#depth-limit) and keep deeper entries.

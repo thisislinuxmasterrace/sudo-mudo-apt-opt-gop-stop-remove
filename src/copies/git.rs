@@ -1,6 +1,6 @@
 //! optional git detail for explicitly requested explanations, once per command-line target.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn query(
@@ -40,7 +40,18 @@ fn query(
     crate::advisory::output(&mut command)
 }
 
-pub(crate) fn explain(path: &Path) -> Option<String> {
+/// what git says about one command-line target.
+pub(crate) struct Detail {
+    /// the work tree root, absolute.
+    pub root: PathBuf,
+    /// whether the index tracks the path; `None` when git could not tell.
+    pub tracked: Option<bool>,
+    /// whether reachable history contains the path; `None` when git could not tell. directories
+    /// include their descendants. renames, reflogs and unreachable objects are not looked at.
+    pub in_history: Option<bool>,
+}
+
+pub(crate) fn inspect(path: &Path) -> Option<Detail> {
     let meta = std::fs::symlink_metadata(path).ok()?;
     if !meta.is_file() && !meta.is_dir() {
         return None;
@@ -58,16 +69,16 @@ pub(crate) fn explain(path: &Path) -> Option<String> {
     } else {
         relative
     };
-    let index = match query(
+    let tracked = match query(
         &root,
         relative,
         &["ls-files", "--cached", "--error-unmatch", "-z"],
     ) {
-        Some((status, _)) if status.success() => "tracked in the index",
-        Some((status, _)) if status.code() == Some(1) => "not tracked in the index",
-        _ => "index unknown",
+        Some((status, _)) if status.success() => Some(true),
+        Some((status, _)) if status.code() == Some(1) => Some(false),
+        _ => None,
     };
-    let history = match query(
+    let in_history = match query(
         &root,
         relative,
         &[
@@ -83,15 +94,16 @@ pub(crate) fn explain(path: &Path) -> Option<String> {
         Some((status, bytes))
             if status.success() && bytes.iter().any(|b| !b.is_ascii_whitespace()) =>
         {
-            "reachable history contains this path"
+            Some(true)
         }
-        Some((status, _)) if status.success() => "no reachable history found for this path",
-        _ => "history unknown",
+        Some((status, _)) if status.success() => Some(false),
+        _ => None,
     };
-    Some(format!(
-        "  - {}: git: {index}; {history}. directory results include descendants. renamed paths, reflogs, unreachable objects, clones and remotes are not checked.",
-        path.display()
-    ))
+    Some(Detail {
+        root,
+        tracked,
+        in_history,
+    })
 }
 
 #[cfg(test)]
@@ -104,7 +116,8 @@ mod tests {
         std::fs::create_dir(dir.path().join(".git")).unwrap();
         let path = dir.path().join("file");
         std::fs::write(&path, b"data").unwrap();
-        let text = explain(&path).unwrap();
-        assert!(text.contains("index unknown; history unknown"), "{text}");
+        let detail = inspect(&path).unwrap();
+        assert_eq!(detail.tracked, None);
+        assert_eq!(detail.in_history, None);
     }
 }

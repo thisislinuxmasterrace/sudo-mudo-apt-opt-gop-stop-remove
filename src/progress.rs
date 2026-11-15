@@ -196,7 +196,7 @@ mod tests {
         let start = Instant::now();
         let (progress, _) = capture(Some(MIB), start);
 
-        assert_eq!(progress.line(start), "progress: 0% 0 b of 1.0 mib");
+        assert_eq!(progress.line(start), "progress: 0% 0 bytes of 1.0 mib");
     }
 
     #[test]
@@ -239,8 +239,8 @@ mod tests {
         let start = Instant::now();
         let (mut progress, out) = capture(None, start);
 
-        progress.add_at(1024 * MIB, start + Duration::from_secs(1));
-        progress.add_at(0, start + Duration::from_secs(2_000_000));
+        progress.add_at(1023 * MIB, start + Duration::from_secs(1));
+        progress.add_at(MIB, start + Duration::from_secs(2));
 
         let text = out.text();
         let parts: Vec<&str> = text.split('\r').collect();

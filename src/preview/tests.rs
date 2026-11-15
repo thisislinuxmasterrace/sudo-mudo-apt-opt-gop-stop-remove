@@ -44,16 +44,15 @@ fn summary_lines_include_counters_and_incomplete_coverage() {
             "refused: mount point given as target: 9",
             "unreadable entries: 10",
             "special entries (fifo, sockets, devices, unsupported reparse points), which are refused: 11",
-            "assessments: 1 weak (use --explain for risks or --dry-run --json for details)",
             "assessment coverage: incomplete (skipped, excluded, refused, special or unreadable entries are not fully assessed for overwrite)",
         ]
     );
 }
 
 #[test]
-fn summary_lines_aggregate_assessments() {
+fn summary_does_not_present_conservative_verdicts_as_findings() {
     let summary = Summary {
-        assessments: (0..23)
+        assessments: (0..1000)
             .map(|index| EntryAssessment {
                 path: PathBuf::from(format!("entry-{index:02}")),
                 assessment: Assessment::unknown(),
@@ -63,9 +62,6 @@ fn summary_lines_aggregate_assessments() {
         ..Summary::default()
     };
     let mut expected = vec!["files: 0, directories: 0, links: 0, size: 0 b".to_owned()];
-    expected.push(
-        "assessments: 23 weak (use --explain for risks or --dry-run --json for details)".to_owned(),
-    );
     expected.push("assessment coverage: incomplete (skipped, excluded, refused, special or unreadable entries are not fully assessed for overwrite)".to_owned());
 
     assert_eq!(summary.lines(), expected);

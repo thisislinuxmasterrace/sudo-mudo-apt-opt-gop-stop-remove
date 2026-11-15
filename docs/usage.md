@@ -39,7 +39,7 @@ every path is validated first. one refused path aborts the whole run with exit c
 
 the tool warns that overwriting does not guarantee erasure, including with `-f`. it summarizes files, directories, links, size, hard links, skipped mounts, exclusions, special files and unreadable entries, then asks for confirmation.
 
-`--dry-run` prints the summary without changes. text groups assessments by verdict instead of listing every entry; `--dry-run --json` includes all inspected entries. directory metadata and children are assessed separately; skipped or unreadable entries limit coverage. see [assessments](guarantees-and-limits.md#assessments).
+`--dry-run` prints counts and size without changes. text does not count conservative verdicts as separate findings; `--dry-run --json` includes per-entry assessments. directory metadata and children are assessed separately; skipped or unreadable entries limit coverage. use `--explain` for shared limitations and detected storage or copy risks. see [assessments](guarantees-and-limits.md#assessments).
 
 `--explain` adds advice to a dry run; commands are printed, never run. it detects storage concerns, links and some possible copies (see [assessments](guarantees-and-limits.md#assessments)). for a device it only shows the dry run. it cannot be combined with `--json` or `--wipe-free`.
 

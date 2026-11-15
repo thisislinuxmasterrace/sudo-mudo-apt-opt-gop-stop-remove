@@ -4,6 +4,8 @@ all notable changes are listed here. the format follows [keep a changelog](https
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-15
+
 ### added
 
 - `--zero` adds a final zero pass, including read-back verification when requested; normal runs still end with random data.
@@ -57,5 +59,6 @@ all notable changes are listed here. the format follows [keep a changelog](https
 - sighup stops an erase like ctrl+c and sigterm.
 - release archives with a man page and shell completions, and packaging for npm, homebrew and scoop.
 
-[Unreleased]: https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases/tag/v0.1.0

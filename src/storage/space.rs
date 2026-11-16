@@ -18,6 +18,12 @@ pub fn total_bytes_of_open(dir: &std::fs::File) -> Option<u64> {
     sizes(&nix::sys::statvfs::fstatvfs(dir).ok()?).map(|(total, _)| total)
 }
 
+/// free bytes of the filesystem behind an open directory, including the blocks reserved for root.
+#[cfg(unix)]
+pub fn free_bytes_of_open(dir: &std::fs::File) -> Option<u64> {
+    sizes(&nix::sys::statvfs::fstatvfs(dir).ok()?).map(|(_, free)| free)
+}
+
 #[cfg(unix)]
 fn sizes(stat: &nix::sys::statvfs::Statvfs) -> Option<(u64, u64)> {
     // block counts are u32 on some unixes and u64 on others, so one of these is a no-op.

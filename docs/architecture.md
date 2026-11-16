@@ -19,7 +19,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `src/advisory.rs`, `copies/git.rs`, `snapshots.rs` | bounded read-only tool lookups for explicit explanations |
 | `src/safety.rs`, `safety/unix.rs`, `safety/windows.rs`, `storage/`, `entry.rs` | path and opened-ancestor protection, windows protected directory identities, storage facts (medium and verdict are enums; `storage/mountinfo.rs` is the shared byte-based mountinfo parser) and windows reparse classification |
 | `src/erase/`, `verify.rs` | file and tree erasure, read-back verification |
-| `src/wipe/`, `device/` | free-space and linux device erasure; wipe is `mod.rs` (passes), `fill.rs` (fill loop and size bound), `temp.rs` (unnamed or named fill files) |
+| `src/wipe/`, `device/` | free-space and linux device erasure; wipe is `mod.rs` (passes), `fill.rs` (fill loop and size bound), `release.rs` (wait until a pass's space is freed), `temp.rs` (unnamed or named fill files) |
 | `src/log.rs`, `json.rs`, `progress.rs` | reports and progress |
 | `src/ui.rs` | human output, stream-specific terminal colors, headings, prompts and result summaries |
 | `src/platform/` | windows restart manager, file handle rename, posix delete, file identity and link count, console handler, reboot deletion |

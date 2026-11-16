@@ -9,7 +9,7 @@ sudo mudo apt opt gop stop remove --wipe-free /home -n 3
 
 ## how it works
 
-each pass fills temporary files until the volume is full, then removes them. every ordinary pass writes random data; `--zero` adds a final zero pass. a pass that writes more than the volume size stops with exit code 4: the filesystem probably compresses or deduplicates, so free space may not be wiped. files stay open to retain their blocks. reaching the open-file limit fails the run and releases them. unix rolls over at filesystem file-size limits; windows fat32 rolls over one mib below 4 gib. other windows file-size limits are not handled separately.
+each pass fills temporary files until the volume is full, then removes them. after each pass the run waits, up to 60 seconds, until the filesystem has freed that space: zfs frees deleted blocks seconds later, and the next pass would find the volume still full. if the space is not freed in time, a warning is printed; the next pass then fills what is free, and after the last pass the filesystem frees the space later by itself. every ordinary pass writes random data; `--zero` adds a final zero pass. a pass that writes more than the volume size stops with exit code 4: the filesystem probably compresses or deduplicates, so free space may not be wiped. files stay open to retain their blocks. reaching the open-file limit fails the run and releases them. unix rolls over at filesystem file-size limits; windows fat32 rolls over one mib below 4 gib. other windows file-size limits are not handled separately.
 
 - nothing in `<dir>` is changed. on linux the fill files are created without a name (`O_TMPFILE`) where the filesystem supports it, and on windows they are deleted on close, so a killed process leaves nothing behind. with the named fallback (`.fill-*`), a kill between create and unlink can leave an empty file.
 - free-space wiping does not reach names and metadata: directory entries and journal records of deleted files may keep their names.
@@ -29,7 +29,7 @@ all with exit code 1 and before anything is written:
 - network filesystems, any fuse mount, any filesystem type the tool does not recognize or cannot read, and remote drives. their free space may belong to a server or to other users. a plain erase only warns about these types.
 - bsd systems: the filesystem type is not determined there, so `--wipe-free` is refused.
 
-copy-on-write filesystems (apfs, btrfs, zfs, refs, bcachefs) are allowed with a warning.
+copy-on-write and log-structured filesystems (apfs, btrfs, zfs, refs, bcachefs, overlay, f2fs, nilfs2, ubifs) are allowed with a warning.
 
 ## limits
 

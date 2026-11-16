@@ -18,6 +18,7 @@ all notable changes are listed here. the format follows [keep a changelog](https
 
 ### fixed
 
+- `--wipe-free` with more than one pass no longer fails on zfs with "no space left on device": each pass waits, up to 60 seconds, until the filesystem has freed the space of the previous one.
 - unix erase retains selected parent directories across confirmation, so parent symlink changes cannot redirect it; replaced targets are kept.
 - recursive unix erase preserves protected directories, including home, when selected through an ancestor, also with `-f`.
 - unix free-space wiping creates and unlinks fill files through the retained directory, with opened-directory protection and filesystem checks.

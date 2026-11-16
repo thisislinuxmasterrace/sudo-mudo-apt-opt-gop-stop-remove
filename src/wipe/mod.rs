@@ -2,6 +2,7 @@
 //! with temporary files that disappear by themselves.
 
 mod fill;
+mod release;
 mod temp;
 
 #[cfg(unix)]
@@ -40,6 +41,19 @@ impl Directory {
 
     pub fn is_protected(&self) -> bool {
         self.protected
+    }
+
+    /// free bytes of the volume, including the blocks reserved for root. on unix from the opened
+    /// directory.
+    fn free_bytes(&self) -> Option<u64> {
+        #[cfg(unix)]
+        {
+            crate::storage::free_bytes_of_open(&self.file)
+        }
+        #[cfg(not(unix))]
+        {
+            crate::storage::free_bytes(&self.path)
+        }
     }
 
     /// refuses a directory that must not be filled. returns true for a protected path that was let through.
@@ -148,6 +162,7 @@ fn wipe_each_pass(
     progress: &mut Progress,
 ) -> io::Result<Outcome> {
     let mut total = 0u64;
+    let before = dir.free_bytes();
     for pass in 0..opts.passes {
         let pattern = pattern_for_pass(pass, opts.passes, opts.zero);
         if opts.verbose {
@@ -178,11 +193,55 @@ fn wipe_each_pass(
                 human_bytes(done.written)
             );
         }
+        // also after the last pass, so the volume is not left full when the run ends.
+        if let Some(before) = before {
+            space_given_back(dir, before, pass + 1, opts, progress)?;
+        }
     }
     Ok(Outcome {
         written: total,
         exceeded_pass: None,
     })
+}
+
+/// waits for the filesystem to free the blocks of a finished pass. without that, the next pass
+/// finds no free space on zfs. a timeout only warns: the next pass then fills what is free, and
+/// after the last pass the filesystem frees the space later by itself.
+fn space_given_back(
+    dir: &Directory,
+    before: u64,
+    pass: u32,
+    opts: &Options,
+    progress: &mut Progress,
+) -> io::Result<()> {
+    let back = release::wait_for_space(
+        before,
+        || dir.free_bytes(),
+        || {
+            if opts.verbose {
+                progress.finish();
+                crate::ui::message!(
+                    "  waiting for the filesystem to free the space of pass {pass}"
+                );
+            }
+        },
+        release::POLL,
+        release::TIMEOUT,
+    )?;
+    if !back {
+        let effect = if pass < opts.passes {
+            "the next pass may fill less"
+        } else {
+            "the volume may still look full for a while"
+        };
+        progress.finish();
+        crate::ui::message!(
+            "{}: warning: the space of pass {pass} was not freed within {} seconds, {effect}",
+            crate::ui::shown(&dir.path),
+            release::TIMEOUT.as_secs()
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

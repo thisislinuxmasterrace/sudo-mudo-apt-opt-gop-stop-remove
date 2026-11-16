@@ -32,7 +32,7 @@ pub use space::free_bytes;
 #[cfg(not(unix))]
 pub use space::total_bytes;
 #[cfg(unix)]
-pub use space::total_bytes_of_open;
+pub use space::{free_bytes_of_open, total_bytes_of_open};
 
 /// filesystems that write to new blocks instead of overwriting in place.
 /// refs block cloning makes several files share the same clusters. f2fs, nilfs2 and ubifs are

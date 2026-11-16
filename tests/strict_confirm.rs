@@ -42,13 +42,18 @@ fn confirmation_lists_the_first_twenty_paths_and_counts_the_rest() {
 
     assert_exit(&out, 3);
     let stderr = String::from_utf8_lossy(&out.stderr);
+    // storage warnings may name every path later, so only the target list is checked.
+    let list = stderr
+        .split_once("targets, erased permanently")
+        .and_then(|(_, rest)| rest.split_once("... and 3 more"))
+        .map(|(list, _)| list)
+        .unwrap_or_else(|| panic!("{stderr}"));
     for file in &files[..20] {
-        assert!(stderr.contains(path_str(file)), "{stderr}");
+        assert!(list.contains(path_str(file)), "{stderr}");
     }
     for file in &files[20..] {
-        assert!(!stderr.contains(path_str(file)), "{stderr}");
+        assert!(!list.contains(path_str(file)), "{stderr}");
     }
-    assert!(stderr.contains("... and 3 more"), "{stderr}");
     assert!(stderr.contains("aborted, nothing was erased."), "{stderr}");
     assert!(files.iter().all(|file| file.exists()));
 }

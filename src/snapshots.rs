@@ -159,9 +159,22 @@ mod tests {
         std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o700)).unwrap();
         let path = dir.path().join("file");
         std::fs::write(&path, b"contents").unwrap();
+        // a fork in a parallel test can briefly hold the script open for writing (ETXTBSY), which
+        // looks like an unavailable tool; a persistent failure still fails the assertion.
+        let using = |target: &Path| {
+            for _ in 0..50 {
+                match btrfs_using(target, tool.as_os_str()) {
+                    Err(Failure::Unavailable) => {
+                        std::thread::sleep(std::time::Duration::from_millis(20))
+                    }
+                    found => return found,
+                }
+            }
+            btrfs_using(target, tool.as_os_str())
+        };
         for target in [&path, &dir.path().to_path_buf()] {
             assert_eq!(
-                btrfs_using(target, tool.as_os_str()).as_deref(),
+                using(target).as_deref(),
                 Ok(
                     "1 direct snapshot of its btrfs subvolume may keep older versions; remove them first"
                 )

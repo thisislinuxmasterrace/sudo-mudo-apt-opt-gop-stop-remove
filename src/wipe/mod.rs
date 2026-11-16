@@ -194,14 +194,17 @@ mod tests {
     const MIB: u64 = 1024 * 1024;
 
     // the unix production path checks the opened directory, not `validate_wipe_dir`. opening only.
+    // a root may still be refused for its filesystem (macos `/home` is autofs), never as protected.
     #[cfg(unix)]
     #[test]
-    fn user_data_roots_open_for_a_fill_without_the_override() {
+    fn user_data_roots_are_not_protected_for_a_fill() {
         for root in ["/home", "/mnt", "/media", "/srv"] {
             if !Path::new(root).is_dir() {
                 continue;
             }
-            assert!(Directory::open(Path::new(root), false).is_ok(), "{root}");
+            if let Err(err) = Directory::open(Path::new(root), false) {
+                assert!(!err.to_string().contains("protected"), "{root}: {err}");
+            }
         }
     }
 

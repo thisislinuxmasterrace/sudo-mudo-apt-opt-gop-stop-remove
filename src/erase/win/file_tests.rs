@@ -41,9 +41,9 @@ fn name_goes_back_through_the_handle_when_a_file_is_kept() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("data");
     fs::write(&path, b"data").unwrap();
+    let mut keep = kept(&path);
     let file = windows::open_for_erase(&path).unwrap();
     let hidden = hide(&file).unwrap();
-    let mut keep = kept(&path);
 
     let err = keep_under_name(Some(&hidden), &file, &mut keep, io::Error::other("boom"));
 
@@ -57,11 +57,11 @@ fn error_names_the_hidden_entry_when_the_name_cannot_be_given_back() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("data");
     fs::write(&path, b"data").unwrap();
+    let mut keep = kept(&path);
     let file = windows::open_for_erase(&path).unwrap();
     let hidden = hide(&file).unwrap();
     // something else took the name meanwhile: it is not replaced.
     fs::write(&path, b"stranger").unwrap();
-    let mut keep = kept(&path);
 
     let err = keep_under_name(Some(&hidden), &file, &mut keep, io::Error::other("boom"));
 
@@ -76,11 +76,16 @@ fn delete_through_the_erase_handle_removes_the_name_while_it_is_open() {
     let path = dir.path().join("data");
     fs::write(&path, b"data").unwrap();
     let file = windows::open_for_erase(&path).unwrap();
+    let other = windows::open_for_erase(&path).unwrap();
 
     windows::posix_delete(&file).unwrap();
-
-    assert!(!path.exists());
     drop(file);
+
+    // the name went with the erase handle; another open handle does not keep it.
+    assert!(!path.exists());
+    fs::write(&path, b"new").unwrap();
+    drop(other);
+    assert_eq!(fs::read(&path).unwrap(), b"new");
 }
 
 #[test]
@@ -92,11 +97,12 @@ fn hide_follows_the_handle_when_the_name_is_taken_by_another_file() {
     let moved = dir.path().join("moved");
     windows::rename_by_handle(&file, &moved).unwrap();
     fs::write(&path, b"stranger").unwrap();
+    let expected = fs::canonicalize(&moved).unwrap();
 
     let hidden = hide(&file).unwrap();
 
     // the name to restore is the one the handle has now, not the stranger's.
-    assert_eq!(hidden.original, fs::canonicalize(&moved).unwrap());
+    assert_eq!(hidden.original, expected);
     assert_eq!(fs::read(&path).unwrap(), b"stranger");
 }
 

@@ -117,10 +117,10 @@ pub fn open_for_delete(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
-/// removes the directory entry at once. the file must have been opened with delete access.
+/// marks the file for a posix delete. the file must have been opened with delete access.
 ///
-/// posix semantics unlink the name immediately, so the path can be reused while
-/// the data stays alive until the last handle closes.
+/// the name goes when this handle closes, even while other handles stay open, so the path can be
+/// reused while the data stays alive until the last handle closes.
 pub fn posix_delete(file: &File) -> io::Result<()> {
     let info = FILE_DISPOSITION_INFO_EX {
         Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS,

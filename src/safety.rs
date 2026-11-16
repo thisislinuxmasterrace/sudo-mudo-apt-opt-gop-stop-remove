@@ -4,6 +4,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+pub(crate) mod unix;
+
 /// checks that a path given on the command line may be erased. returns `Ok(true)` when the path is
 /// protected and `allow_protected` lets it through; the caller must warn about that.
 ///

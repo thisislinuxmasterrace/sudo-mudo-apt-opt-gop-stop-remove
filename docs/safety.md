@@ -12,6 +12,10 @@ paths are normalized first (`.` components are dropped), so `link/` is the link,
 
 on unix, `-r` walks open directory descriptors, preventing a swapped directory from redirecting the walk. entries are renamed and checked against their earlier identity; a detected substitution is reported and restored when possible. the later unlink is separate, so another process with parent-directory write access can still replace the hidden name between checks.
 
+unix retains each selected parent directory and target identity before confirmation. changing a parent symlink cannot redirect the confirmed erase; replacing the selected entry returns code 4. opened ancestors and protected directory identities are checked again during erasure. these checks remain separate from later writes and deletion.
+
+retaining selections uses one directory descriptor per target, plus one entry descriptor on linux to prevent inode reuse. a list exceeding the process's open-file limit is refused before erasure; a recursive directory target avoids retaining each child separately. previews remain path-based observations, not an atomic snapshot of the retained selection.
+
 on windows, reparse points that are not recognized as symbolic links or junctions are refused without changing their attributes or traversing them. the path-based walk cannot prevent substitutions by another process between checks and operations.
 
 ## protected locations
@@ -27,6 +31,8 @@ refused for erase and for `--wipe-free`:
 on unix a directory is compared by device and inode with the protected ones and their ancestors, not by spelling. `/USR/bin` on a case-insensitive macos volume is `/usr/bin`, and a bind mount of `/usr` at `~/x` is refused too.
 
 the home directory (`$HOME` or the passwd entry on unix, `%USERPROFILE%` on windows) is refused for erase as a directory; files inside it can be erased. unix also protects the invoking sudo account's home, resolved and retained before argument parsing, even when sudo resets `$HOME` to root's home. `--wipe-free` does not refuse home, because it changes no existing files.
+
+unix recursive erasure also refuses protected directories found below a target, including home. that directory and its contents stay intact; other selected entries may already be erased, and the run returns code 4. `-f` does not bypass this check; the protected-path override still applies.
 
 ## mount points
 

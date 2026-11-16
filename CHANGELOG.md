@@ -4,6 +4,12 @@ all notable changes are listed here. the format follows [keep a changelog](https
 
 ## [Unreleased]
 
+### fixed
+
+- unix erase retains selected parent directories across confirmation, so parent symlink changes cannot redirect it; replaced targets are kept.
+- recursive unix erase preserves protected directories, including home, when selected through an ancestor, also with `-f`.
+- unix free-space wiping creates and unlinks fill files through the retained directory, with opened-directory protection and filesystem checks.
+
 ## [0.2.0] - 2026-11-15
 
 ### added

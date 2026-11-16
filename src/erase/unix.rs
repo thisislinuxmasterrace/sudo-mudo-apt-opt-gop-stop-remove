@@ -10,16 +10,15 @@ use std::io;
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use nix::dir::Dir;
 use nix::fcntl::{AtFlags, OFlag};
-use nix::sys::stat::{FileStat, Mode, SFlag, fstat, fstatat, stat};
+use nix::sys::stat::{FileStat, Mode, SFlag, fstat, fstatat};
 
 use crate::log::{Kind, Log, Outcome};
 use crate::verify::{self, Expected};
 
-use super::Options;
 use super::at::{
     file_kind, hide_entry, is_directory_at, keep_partly_overwritten, make_owner_accessible,
     open_checked, remove_checked, remove_hidden,
@@ -30,6 +29,7 @@ use super::mount::{MountTable, is_boundary};
 use super::overwrite::overwrite;
 use super::report::{log_done, log_object, log_stopped, unseen};
 use super::walk::{Walk, is_excluded};
+use super::{Options, Selected};
 
 /// erases a file, a directory tree, or a symbolic link.
 ///
@@ -40,42 +40,51 @@ use super::walk::{Walk, is_excluded};
 /// entries matching `excludes` are kept on purpose: their directories are kept too, and the result is
 /// `Ok(true)` (something was kept because of `--exclude`), which is not a failure.
 #[cfg(unix)]
+#[cfg(test)]
 pub fn erase_path(
     path: &Path,
     opts: &Options,
     excludes: &[String],
     log: Option<&Log>,
 ) -> io::Result<bool> {
-    let Some(name) = path.file_name() else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "refusing to erase '.', '..' or a filesystem root",
-        ));
-    };
-    let parent = match path.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => parent,
-        _ => Path::new("."),
-    };
-    // the parent comes from the user, so links in it are followed; everything below it goes through
-    // the open descriptor.
-    let dir = File::open(parent).map_err(|err| unseen(log, path, err))?;
-    let entry =
-        CString::new(name.as_bytes()).map_err(|err| unseen(log, path, io::Error::other(err)))?;
-    let st = fstatat(&dir, entry.as_c_str(), AtFlags::AT_SYMLINK_NOFOLLOW)
+    let selected = Selected::open(path)?;
+    erase_selected(path, &selected, opts, excludes, log)
+}
+
+pub fn erase_selected(
+    path: &Path,
+    selected: &Selected,
+    opts: &Options,
+    excludes: &[String],
+    log: Option<&Log>,
+) -> io::Result<bool> {
+    let Selected { dir, entry, st, .. } = selected;
+    let current_real = selected
+        .current_real()
+        .map_err(|err| unseen(log, path, err))?;
+    let real = &current_real;
+    let now = fstatat(dir, entry.as_c_str(), AtFlags::AT_SYMLINK_NOFOLLOW)
         .map_err(|err| unseen(log, path, io::Error::from(err)))?;
-    let parent_st = fstat(&dir).map_err(|err| unseen(log, path, io::Error::from(err)))?;
-    let real = real_path(&dir, &parent_st, parent)
-        .map_err(|err| unseen(log, path, err))?
-        .join(name);
+    if now.st_dev != st.st_dev || now.st_ino != st.st_ino || file_kind(&now) != file_kind(st) {
+        return Err(unseen(
+            log,
+            path,
+            io::Error::other("selected entry changed after validation"),
+        ));
+    }
+    let st = &now;
+    crate::safety::unix::check_entry(dir, st, opts.allow_protected)
+        .map_err(|err| unseen(log, path, err))?;
+    let parent_st = fstat(dir).map_err(|err| unseen(log, path, io::Error::from(err)))?;
     // read for each argument, so a mount made while an earlier one was erased is seen.
     let mounts = MountTable::read();
     // a mount point cannot be renamed away: refuse before erasing anything inside it.
     let boundary =
-        is_boundary(&st, &parent_st, &real, &mounts).map_err(|err| unseen(log, path, err))?;
+        is_boundary(st, &parent_st, real, &mounts).map_err(|err| unseen(log, path, err))?;
     if boundary {
         let err =
             io::Error::other("is a mount point or on another filesystem, refusing to erase it");
-        let (kind, size) = stat_kind(&st);
+        let (kind, size) = stat_kind(st);
         log_object(
             log,
             path,
@@ -83,13 +92,13 @@ pub fn erase_path(
             size,
             Outcome::Refused,
             &err.to_string(),
-            &assess_selected(&real, &st),
+            &assess_selected(real, st),
         );
         return Err(err);
     }
     let tree_links =
-        if running_as_root() && !opts.allow_protected && file_kind(&st) == SFlag::S_IFDIR {
-            super::tree_links::TreeLinks::collect(&dir, &entry, &st, &real, excludes, &mounts)
+        if running_as_root() && !opts.allow_protected && file_kind(st) == SFlag::S_IFDIR {
+            super::tree_links::TreeLinks::collect(dir, entry, st, real, excludes, &mounts)
                 .map_err(|err| unseen(log, path, err))?
         } else {
             super::tree_links::TreeLinks::default()
@@ -101,37 +110,7 @@ pub fn erase_path(
         mounts: &mounts,
         tree_links: &tree_links,
     };
-    erase_object(&dir, entry.as_c_str(), &st, path, &real, walk, opts)
-}
-
-/// the absolute path of the open directory `dir`, for mount lookups. linux reads it from the
-/// descriptor; elsewhere `parent` is canonicalized. either way the result must still be `dir`
-/// (`dir_st`), or the lookup would be made for another directory.
-#[cfg(unix)]
-fn real_path(dir: &File, dir_st: &FileStat, parent: &Path) -> io::Result<PathBuf> {
-    let real = opened_path(dir, parent)?;
-    let now = stat(&real)?;
-    if now.st_dev != dir_st.st_dev || now.st_ino != dir_st.st_ino {
-        return Err(io::Error::other(format!(
-            "{} is not the directory that was opened",
-            real.display()
-        )));
-    }
-    Ok(real)
-}
-
-/// without /proc the parent is canonicalized as on other systems; `real_path` checks both alike.
-#[cfg(target_os = "linux")]
-fn opened_path(dir: &File, parent: &Path) -> io::Result<PathBuf> {
-    use std::os::fd::AsRawFd;
-
-    fs::read_link(format!("/proc/self/fd/{}", dir.as_raw_fd()))
-        .or_else(|_| fs::canonicalize(parent))
-}
-
-#[cfg(all(unix, not(target_os = "linux")))]
-fn opened_path(_dir: &File, parent: &Path) -> io::Result<PathBuf> {
-    fs::canonicalize(parent)
+    erase_object(dir, entry.as_c_str(), st, path, real, walk, opts)
 }
 
 /// erases one entry and writes its line to the log. `st` is its stat, taken without following links.
@@ -249,6 +228,7 @@ fn erase_entry(
 ) -> io::Result<bool> {
     let kind = file_kind(st);
     super::check_depth(walk.rel)?;
+    crate::safety::unix::check_entry(parent, st, opts.allow_protected)?;
     if kind == SFlag::S_IFLNK {
         remove_checked(parent, name, st, shown).map(|()| false)
     } else if kind == SFlag::S_IFDIR {

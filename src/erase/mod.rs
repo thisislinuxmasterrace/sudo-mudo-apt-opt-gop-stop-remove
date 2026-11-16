@@ -11,6 +11,8 @@ mod overwrite;
 mod pattern;
 mod report;
 #[cfg(unix)]
+mod selected;
+#[cfg(unix)]
 mod sparse;
 #[cfg(windows)]
 mod streams;
@@ -36,7 +38,11 @@ pub(crate) use mount::unescape_mountinfo;
 pub(crate) use mount::{MountTable, device, is_mount_boundary_in, link_count};
 pub(crate) use pattern::{Pattern, fill, pattern_for_pass};
 #[cfg(unix)]
+pub use selected::Selected;
+#[cfg(all(unix, test))]
 pub use unix::erase_path;
+#[cfg(unix)]
+pub use unix::erase_selected;
 pub(crate) use walk::is_excluded;
 pub(crate) use walk::{MAX_DEPTH, check_depth};
 #[cfg(windows)]

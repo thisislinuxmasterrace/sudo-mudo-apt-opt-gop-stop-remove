@@ -88,6 +88,28 @@ pub(crate) fn filesystem_name(path: &Path) -> Option<String> {
     }
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn opened_filesystem_name(file: &std::fs::File) -> Option<String> {
+    #[allow(clippy::unnecessary_cast)]
+    let raw = nix::sys::statfs::fstatfs(file).ok()?.filesystem_type().0 as i64;
+    magic_name(magic_bits(raw)).map(str::to_owned)
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn opened_filesystem_name(file: &std::fs::File) -> Option<String> {
+    Some(
+        nix::sys::statfs::fstatfs(file)
+            .ok()?
+            .filesystem_type_name()
+            .to_owned(),
+    )
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+pub(crate) fn opened_filesystem_name(_file: &std::fs::File) -> Option<String> {
+    None
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) fn filesystem_name(path: &Path) -> Option<String> {
     let stat = nix::sys::statfs::statfs(path).ok()?;

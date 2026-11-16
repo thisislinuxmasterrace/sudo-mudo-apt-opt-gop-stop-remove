@@ -17,7 +17,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `src/preview/`, `preview.rs`, `assessment.rs`, `assessment/` | summaries, json and per-entry assessments |
 | `src/explain.rs`, `copies.rs` | advice and possible copies |
 | `src/advisory.rs`, `copies/git.rs`, `snapshots.rs` | bounded read-only tool lookups for explicit explanations |
-| `src/safety.rs`, `storage/`, `entry.rs` | path protection, storage facts and windows reparse classification |
+| `src/safety.rs`, `safety/unix.rs`, `storage/`, `entry.rs` | path and opened-ancestor protection, storage facts and windows reparse classification |
 | `src/erase/`, `verify.rs` | file and tree erasure, read-back verification |
 | `src/wipe.rs`, `device/` | free-space and linux device erasure |
 | `src/log.rs`, `json.rs`, `progress.rs` | reports and progress |
@@ -35,14 +35,14 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 `run_erase`:
 
 1. a block device among the paths hands the whole run to `device::run`.
-2. validate every path (`safety`, hard link rule, mount-point target); any failure ends with exit code 1 before anything is touched.
+2. validate every path (`safety`, hard link rule, mount-point target) and retain unix parents and entry identities (`erase/selected.rs`); any failure ends with exit code 1 before anything is touched.
 3. check the `--log` location, print storage warnings.
 4. count the tree (`preview`), unless `-f` and no dry run.
 5. dry run: print the summary or json and return.
 6. print the notes, ask the confirmation (strict where needed), install the interrupt handlers, create the log.
-7. erase each path (`erase::erase_path`), collecting each entry's advisory facts before rename or deletion for the json log; map the outcome to an exit code. text prints risks once and keeps per-entry errors. unix root runs inventory internal hard links (`erase/tree_links.rs`) through checked directory descriptors, unlink redundant selected names, then overwrite the last name only after a fresh handle link-count check.
+7. erase each selection (`erase::erase_selected` on unix, `erase::erase_path` on windows), collecting each entry's advisory facts before rename or deletion for the json log; map the outcome to an exit code. text prints risks once and keeps per-entry errors. unix root runs inventory internal hard links (`erase/tree_links.rs`) through checked directory descriptors, unlink redundant selected names, then overwrite the last name only after a fresh handle link-count check.
 
-`run_wipe_free` validates the directory, refuses network and unknown filesystems, shows the space, asks, installs the handlers and calls `wipe::wipe_free_space`.
+`run_wipe_free` retains and validates the directory, refuses network and unknown filesystems, shows the space, asks, installs the handlers and calls `wipe::wipe_selected`. unix fill files use `openat` and `unlinkat` on the retained directory, with protection and filesystem checks before each creation.
 
 ## invariants
 

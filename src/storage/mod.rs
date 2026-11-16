@@ -100,6 +100,12 @@ pub fn is_network(path: &Path) -> bool {
         || remote_drive(path)
 }
 
+#[cfg(unix)]
+pub(crate) fn opened_wipe_allowed(file: &std::fs::File) -> bool {
+    fs_name::opened_filesystem_name(file)
+        .is_some_and(|name| !matches!(classify(&name), Kind::Network | Kind::FuseOrUnknown))
+}
+
 fn path_warnings(path: &Path) -> Vec<String> {
     let mut found = Vec::new();
     match filesystem_name(path) {

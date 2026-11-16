@@ -81,6 +81,22 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
     if invalid {
         return ExitCode::from(EXIT_INVALID);
     }
+    #[cfg(unix)]
+    let selected = match paths
+        .iter()
+        .map(|path| {
+            let selected = erase::Selected::open(path)?;
+            selected.check(cli.recursive, cli.allow_protected)?;
+            Ok(selected)
+        })
+        .collect::<std::io::Result<Vec<_>>>()
+    {
+        Ok(selected) => selected,
+        Err(err) => {
+            crate::ui::message!("{NAME}: could not retain selected paths: {err}");
+            return ExitCode::from(EXIT_INVALID);
+        }
+    };
     if let Some(log_path) = &cli.log
         && !cli.dry_run
         && let Err(err) = log::check_path(log_path, paths)
@@ -213,6 +229,15 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
                 crate::ui::count(cli.passes.into(), "pass", "passes")
             );
         }
+        #[cfg(unix)]
+        let result = erase::erase_selected(
+            path,
+            &selected[index],
+            opts,
+            &cli.exclude,
+            log_file.as_ref(),
+        );
+        #[cfg(not(unix))]
         let result = erase::erase_path(path, opts, &cli.exclude, log_file.as_ref());
         match &result {
             Ok(false) => erased += 1,
@@ -247,6 +272,13 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
 }
 
 pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
+    let selected = match wipe::Directory::open(dir, cli.allow_protected) {
+        Ok(selected) => selected,
+        Err(err) => {
+            crate::ui::message!("{NAME}: {}: {err}", dir.display());
+            return ExitCode::from(EXIT_INVALID);
+        }
+    };
     match safety::validate_wipe_dir(dir, cli.allow_protected) {
         Ok(true) => crate::ui::message!(
             "{NAME}: warning: {}: protected system path, filling it because --i-know-what-i-am-doing was given",
@@ -301,7 +333,7 @@ pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
         return ExitCode::from(EXIT_DECLINED);
     }
 
-    match wipe::wipe_free_space(dir, opts) {
+    match wipe::wipe_selected(&selected, opts) {
         Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {
             crate::ui::message!(
                 "interrupted: {}: free space was partly wiped, the temporary files are removed",

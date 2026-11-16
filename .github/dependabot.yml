@@ -12,8 +12,7 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    # actions are pinned to full commit shas with a version comment; dependabot bumps both. the
+    # toolchain versions (stable, the 1.88 msrv) are the `toolchain:` inputs, changed by hand.
     schedule:
       interval: weekly
-    ignore:
-      # the rust-toolchain pin is the msrv (1.88); it is changed by hand, not by dependabot.
-      - dependency-name: "dtolnay/rust-toolchain"

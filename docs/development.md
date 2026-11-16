@@ -47,12 +47,12 @@ run by hand or by a ci job, outside `cargo test`:
 
 | workflow | trigger | content |
 | --- | --- | --- |
-| `ci.yml` | push and pull request to main | fmt (ubuntu only), clippy and tests on ubuntu, macos and windows; a `msrv` job on 1.88 |
+| `ci.yml` | push and pull request to main | fmt (ubuntu only), clippy and tests on ubuntu, macos and windows; a `msrv` job on 1.88 (host and `x86_64-pc-windows-gnu` check); a `cargo audit` job on the committed `Cargo.lock` |
 | `windows-locks.yml` | push, pull request, manual | builds release and runs `tests/windows/locks.ps1` on windows-latest |
 | `network-fs.yml` | manual | mounts nfs and samba on localhost and runs `tests/network/network_fs.sh` |
-| `release.yml` | `v*` tags, manual | checks the tag against `Cargo.toml` and `CHANGELOG.md`, runs clippy and tests, generates the man page and completions, and builds archives for seven targets with a `.sha256` each. a tag push also creates a github release; a manual run builds but does not release. see [releasing](../RELEASING.md) |
+| `release.yml` | `v*` tags, manual | checks that the tagged commit is on main and that the tag matches `Cargo.toml` and `CHANGELOG.md`, runs clippy and tests, generates the man page and completions, and builds archives for seven targets with a `.sha256` each. a tag push also creates a github release; a manual run builds but does not release. see [releasing](../RELEASING.md) |
 
-dependabot ignores rand 0.x major and minor updates and `dtolnay/rust-toolchain`; the msrv pin is changed by hand. check node versions before bumping actions.
+every action is pinned to a full commit sha with a version comment, and dependabot updates both. dependabot ignores rand 0.x major and minor updates; the toolchain versions (`stable`, the 1.88 msrv) are `toolchain:` inputs changed by hand. check node versions before bumping actions.
 
 ## conventions
 

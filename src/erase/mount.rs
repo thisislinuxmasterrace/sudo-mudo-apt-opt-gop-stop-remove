@@ -27,17 +27,20 @@ pub(crate) fn device(_meta: &fs::Metadata) -> u64 {
     0
 }
 
-/// number of hard links to the entry's data. std does not expose it on windows yet, so 1 there.
+/// number of hard links to the entry's data.
 #[cfg(unix)]
-pub(crate) fn link_count(meta: &fs::Metadata) -> u64 {
+pub(crate) fn link_count(_path: &Path, meta: &fs::Metadata) -> u64 {
     use std::os::unix::fs::MetadataExt;
 
     meta.nlink()
 }
 
+/// std does not expose the link count on windows yet, so it is read from the entry at `path`
+/// without following links; 1 when that fails. only reports and facts use it there: the root
+/// hard-link rule is unix-only.
 #[cfg(not(unix))]
-pub(crate) fn link_count(_meta: &fs::Metadata) -> u64 {
-    1
+pub(crate) fn link_count(path: &Path, _meta: &fs::Metadata) -> u64 {
+    crate::platform::windows::link_count_at(path).unwrap_or(1)
 }
 
 /// true when `entry` lives on another filesystem than its parent, or is a mount point itself.

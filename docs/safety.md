@@ -16,7 +16,7 @@ unix retains each selected parent directory and target identity before confirmat
 
 retaining selections uses one directory descriptor per target, plus one entry descriptor on linux to prevent inode reuse. a list exceeding the process's open-file limit is refused before erasure; a recursive directory target avoids retaining each child separately. previews remain path-based observations, not an atomic snapshot of the retained selection.
 
-on windows, reparse points that are not recognized as symbolic links or junctions are refused without changing their attributes or traversing them. the path-based walk cannot prevent substitutions by another process between checks and operations.
+on windows, reparse points that are not recognized as symbolic links or junctions are refused without changing their attributes or traversing them. the walk is path-based: it cannot prevent substitutions by another process between checks and operations, such as a parent directory swapped between confirmation and erase. a file is renamed and deleted through its open handle (posix delete, or the classic delete-on-close on filesystems without it, such as fat), so only the directory part of its path is exposed to that. only when the handle cannot delete is the file given its name back and deleted by path, and then only if the entry opened for the delete is still the erased file.
 
 ## protected locations
 
@@ -28,13 +28,13 @@ refused for erase and for `--wipe-free`:
 
 `/var`, `/opt`, `/Volumes` and `/private` are refused as directories only: files inside them can be erased, so volumes under `/Volumes` and `/private/tmp` stay usable.
 
-for erase only, on unix, `/home`, `/Users`, `/root`, `/srv`, `/mnt`, `/media` and `/run` are refused as exact targets (their contents stay erasable), and `/efi` with everything inside it. `--wipe-free` is not affected.
+for erase only, on unix, `/home`, `/Users`, `/root`, `/srv`, `/mnt`, `/media` and `/run` are refused as exact targets (their contents stay erasable), and `/efi` with everything inside it; on windows, `%SystemDrive%\Users`. `--wipe-free` is not affected.
 
-on unix a directory is compared by device and inode with the protected ones and their ancestors, not by spelling. `/USR/bin` on a case-insensitive macos volume is `/usr/bin`, and a bind mount of `/usr` at `~/x` is refused too.
+on unix a directory is compared by device and inode with the protected ones and their ancestors, not by spelling. `/USR/bin` on a case-insensitive macos volume is `/usr/bin`, and a bind mount of `/usr` at `~/x` is refused too. windows compares the volume and file index the same way, so `\\localhost\C$\Windows\System32` is refused like `C:\Windows\System32`. an ancestor that cannot be opened is skipped on both.
 
-the home directory (`$HOME` or the passwd entry on unix, `%USERPROFILE%` on windows) is refused for erase as a directory; files inside it can be erased. unix also protects the invoking sudo account's home, resolved and retained before argument parsing, even when sudo resets `$HOME` to root's home. `--wipe-free` does not refuse home, because it changes no existing files.
+the home directory (`$HOME` or the passwd entry on unix, `%USERPROFILE%` on windows) is refused for erase as a directory; files inside it can be erased. both platforms also protect the invoking sudo account's home. unix resolves it before argument parsing, even when sudo resets `$HOME` to root's home. windows reads the profile of the process that started `sudo.exe` from its token when the invocation check runs; if that fails, only `%USERPROFILE%` is protected. `--wipe-free` does not refuse home, because it changes no existing files.
 
-unix recursive erasure also refuses protected directories found below a target, including home. that directory and its contents stay intact; other selected entries may already be erased, and the run returns code 4. `-f` does not bypass this check; the protected-path override still applies.
+recursive erasure also refuses protected directories found below a target, including home. that directory and its contents stay intact; other selected entries may already be erased, and the run returns code 4. `-f` does not bypass this check; the protected-path override still applies. on windows each directory the walk enters is compared by volume and file index with the system folders and the home directories, so a recursive erase that reaches a home keeps it. a directory that is a reparse point is refused instead of listed. other accounts' profiles are protected only through `%SystemDrive%\Users` itself.
 
 ## mount points
 
@@ -51,7 +51,7 @@ a hard link shares one copy of the data with other names, so overwriting it eras
 - unix invocations run as root and refuse hard-linked files: a named target fails validation (code 1, also with `--dry-run`); an external or unproven link inside `-r` keeps the tree and returns code 4. `--i-know-what-i-am-doing` overrides this with a warning.
 - inside one recursive target, all names may be removed when a descriptor-based inventory finds as many selected names as the inode's link count. excluded entries and mount boundaries do not count. redundant names are removed without overwriting shared data; only the last name is overwritten, after checking the opened file's link count again. an inventory error stops that target before erasure. names spread across separate command-line targets do not qualify.
 - the preview remains conservative: hard links under root can mark assessment coverage incomplete even when the real erase later proves them internal. concurrent changes can cause refusal or partial completion; the link-count check and writes are separate operations.
-- on windows the link count is not read and root is never detected, so the rule does not apply and the summary does not list hard links.
+- on windows the link count is read and the summary lists hard-linked files, but root is never detected, so the refusal does not apply there.
 - system trees are not scanned for hard links.
 
 ## special files

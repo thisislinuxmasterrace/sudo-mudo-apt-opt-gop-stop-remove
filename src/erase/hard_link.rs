@@ -51,10 +51,11 @@ pub(super) fn check_hard_links(shown: &Path, hard_linked: bool, opts: &Options) 
 pub(crate) fn validate_hard_link(path: &Path, allow: bool) -> Result<(), String> {
     let meta =
         fs::symlink_metadata(path).map_err(|err| format!("{}: {err}", crate::ui::shown(path)))?;
-    if !meta.file_type().is_file() {
+    // the rule exists on unix only: windows has no root check, so it never reads the link count here.
+    if !meta.file_type().is_file() || cfg!(not(unix)) {
         return Ok(());
     }
-    match hard_link_rule(running_as_root(), link_count(&meta) > 1, allow) {
+    match hard_link_rule(running_as_root(), link_count(path, &meta) > 1, allow) {
         HardLinkRule::Refuse => Err(format!("{}: {HARD_LINK_REFUSAL}", crate::ui::shown(path))),
         HardLinkRule::Erase | HardLinkRule::EraseWithWarning => Ok(()),
     }

@@ -194,8 +194,9 @@ mod tests {
     const MIB: u64 = 1024 * 1024;
 
     // the unix production path checks the opened directory, not `validate_wipe_dir`. opening only.
-    // a root may still be refused for its filesystem (macos `/home` is autofs), never as protected.
-    #[cfg(unix)]
+    // a root may still be refused for its filesystem, never as protected. linux only: macos `/home`
+    // links into `/System/Volumes/Data`, which is protected as part of `/System`.
+    #[cfg(target_os = "linux")]
     #[test]
     fn user_data_roots_are_not_protected_for_a_fill() {
         for root in ["/home", "/mnt", "/media", "/srv"] {

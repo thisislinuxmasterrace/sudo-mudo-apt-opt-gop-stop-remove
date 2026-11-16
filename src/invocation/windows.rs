@@ -1,7 +1,11 @@
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::io;
 use std::mem::size_of;
+use std::os::windows::ffi::OsStringExt;
+use std::path::PathBuf;
 use std::ptr;
+use std::sync::OnceLock;
 
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_NO_MORE_FILES, HANDLE, INVALID_HANDLE_VALUE,
@@ -17,6 +21,17 @@ use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
     QueryFullProcessImageNameW,
 };
+use windows_sys::Win32::UI::Shell::GetUserProfileDirectoryW;
+
+/// profile directory of the account that started sudo.exe, read while the process ancestry is still
+/// known. empty when the ancestry check did not run or the profile could not be resolved.
+static INVOKING_HOME: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// the invoking account's profile directory, which differs from `%USERPROFILE%` when sudo elevated
+/// another account. `None` when unknown: callers then protect `%USERPROFILE%` only.
+pub(crate) fn invoking_home() -> Option<PathBuf> {
+    INVOKING_HOME.get().cloned().flatten()
+}
 
 struct Handle(HANDLE);
 
@@ -50,6 +65,9 @@ fn check_native_sudo() -> io::Result<()> {
             break;
         }
         if process_image(parent)?.eq_ignore_ascii_case(&expected) {
+            // the process that started sudo.exe runs as the account that asked for the elevation.
+            let starter = parents.get(&parent).copied().filter(|pid| *pid != 0);
+            let _ = INVOKING_HOME.set(starter.and_then(|pid| profile_of(pid).ok()));
             return Ok(());
         }
         pid = parent;
@@ -57,6 +75,30 @@ fn check_native_sudo() -> io::Result<()> {
     Err(io::Error::other(
         "native sudo ancestry was not found; use windows 11 24h2 or later with inline sudo",
     ))
+}
+
+/// profile directory of the account that owns process `pid`.
+fn profile_of(pid: u32) -> io::Result<PathBuf> {
+    // safety: this opens an existing process for a limited query; no handles are inherited.
+    let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if raw.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    let process = Handle(raw);
+    let mut token = ptr::null_mut();
+    // safety: process is valid and token points to writable storage.
+    if unsafe { OpenProcessToken(process.0, TOKEN_QUERY, &mut token) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let token = Handle(token);
+    let mut path = vec![0u16; 32768];
+    let mut len = path.len() as u32;
+    // safety: token is valid and path and len are writable, len being the buffer size in characters.
+    if unsafe { GetUserProfileDirectoryW(token.0, path.as_mut_ptr(), &mut len) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let end = path.iter().position(|&c| c == 0).unwrap_or(path.len());
+    Ok(PathBuf::from(OsString::from_wide(&path[..end])))
 }
 
 fn elevated() -> io::Result<bool> {

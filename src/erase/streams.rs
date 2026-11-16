@@ -11,12 +11,23 @@ use std::ptr;
 
 use windows_sys::Win32::Foundation::{ERROR_HANDLE_EOF, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{
-    BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-    FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FindClose,
-    FindFirstStreamW, FindNextStreamW, FindStreamInfoStandard, GetFileInformationByHandle,
-    GetVolumeInformationByHandleW, WIN32_FIND_STREAM_DATA,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FindClose, FindFirstStreamW,
+    FindNextStreamW, FindStreamInfoStandard, GetVolumeInformationByHandleW, WIN32_FIND_STREAM_DATA,
 };
 use windows_sys::Win32::System::SystemServices::FILE_NAMED_STREAMS;
+
+use crate::platform::windows::file_id_of;
+
+/// the unnamed main stream, as `FindFirstStreamW` reports it.
+const DEFAULT_STREAM: &str = "::$DATA";
+/// what every stream name ends with.
+const STREAM_SUFFIX: &str = ":$DATA";
+
+/// UTF-16 code units of `text`, the form stream names come in.
+fn utf16(text: &str) -> Vec<u16> {
+    text.encode_utf16().collect()
+}
 
 struct Search(HANDLE);
 
@@ -86,6 +97,9 @@ pub(super) fn names(path: &Path) -> io::Result<Vec<OsString>> {
     }
     let search = Search(handle);
     let mut names = Vec::new();
+    let default_stream = utf16(DEFAULT_STREAM);
+    let suffix = utf16(STREAM_SUFFIX);
+    let separators = utf16("/\\:");
     loop {
         super::check_interrupted()?;
         let end = data
@@ -94,13 +108,14 @@ pub(super) fn names(path: &Path) -> io::Result<Vec<OsString>> {
             .position(|&c| c == 0)
             .ok_or_else(|| io::Error::other("invalid data stream name"))?;
         let name = &data.cStreamName[..end];
-        if name != [58, 58, 36, 68, 65, 84, 65] {
+        if name != default_stream.as_slice() {
+            // a named stream is `:name:$DATA`, and the name holds no path or stream separator.
             if name.len() < 8
-                || name.first() != Some(&58)
-                || !name.ends_with(&[58, 36, 68, 65, 84, 65])
-                || name[1..name.len().saturating_sub(6)]
+                || name.first() != Some(&u16::from(b':'))
+                || !name.ends_with(&suffix)
+                || name[1..name.len().saturating_sub(suffix.len())]
                     .iter()
-                    .any(|c| matches!(*c, 47 | 92 | 58))
+                    .any(|c| separators.contains(c))
             {
                 return Err(io::Error::other(
                     "unsupported data stream name; the file is kept",
@@ -123,23 +138,10 @@ pub(super) fn names(path: &Path) -> io::Result<Vec<OsString>> {
     Ok(names)
 }
 
-fn identity(file: &File) -> io::Result<(u32, u32, u32)> {
-    let mut info = BY_HANDLE_FILE_INFORMATION::default();
-    // safety: file is live and info is a writable output structure.
-    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok((
-        info.dwVolumeSerialNumber,
-        info.nFileIndexHigh,
-        info.nFileIndexLow,
-    ))
-}
-
 /// opens all streams before any content is touched; a locked stream keeps the entire file.
 pub(super) fn open_named(path: &Path, base: &File) -> io::Result<(Vec<OsString>, Vec<File>)> {
     let names = names(path)?;
-    let expected = identity(base)?;
+    let expected = file_id_of(base)?;
     let mut files = Vec::new();
     for name in &names {
         let mut stream_path = path.as_os_str().to_os_string();
@@ -154,7 +156,7 @@ pub(super) fn open_named(path: &Path, base: &File) -> io::Result<(Vec<OsString>,
                     ),
                 )
             })?;
-        if identity(&file)? != expected {
+        if file_id_of(&file)? != expected {
             return Err(io::Error::other(
                 "data stream belongs to a replaced file; refusing to overwrite it",
             ));
@@ -162,7 +164,7 @@ pub(super) fn open_named(path: &Path, base: &File) -> io::Result<(Vec<OsString>,
         files.push(file);
     }
     let current = crate::platform::windows::open_for_erase(path)?;
-    if identity(&current)? != expected {
+    if file_id_of(&current)? != expected {
         return Err(io::Error::other(
             "file changed during stream enumeration; refusing to overwrite it",
         ));
@@ -175,6 +177,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn stream_name_constants_are_the_code_units_windows_reports() {
+        assert_eq!(utf16(DEFAULT_STREAM), [58, 58, 36, 68, 65, 84, 65]);
+        assert_eq!(utf16(STREAM_SUFFIX), [58, 36, 68, 65, 84, 65]);
+    }
+
+    #[test]
     fn named_stream_is_opened_as_the_same_file_and_kept_on_error() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("file");
@@ -185,7 +193,7 @@ mod tests {
         let (names, files) = open_named(&path, &base).unwrap();
         assert_eq!(names, [OsString::from(":secret:$DATA")]);
         assert_eq!(files.len(), 1);
-        assert_eq!(identity(&base).unwrap(), identity(&files[0]).unwrap());
+        assert_eq!(file_id_of(&base).unwrap(), file_id_of(&files[0]).unwrap());
         assert!(self::names(&stream).is_err());
         assert_eq!(std::fs::read(&stream).unwrap(), b"secret");
     }

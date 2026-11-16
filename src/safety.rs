@@ -6,6 +6,10 @@ use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 pub(crate) mod unix;
+#[cfg(windows)]
+pub(crate) mod windows;
+#[cfg(windows)]
+use windows::{is_protected_by_identity, strip_verbatim_prefix};
 
 /// checks that a path given on the command line may be erased. returns `Ok(true)` when the path is
 /// protected and `allow_protected` lets it through; the caller must warn about that.
@@ -155,12 +159,16 @@ fn is_home(location: &Path) -> bool {
         })
 }
 
+/// `%USERPROFILE%` and the profile of the account that started sudo, which differ when sudo elevated
+/// another account. the second is left out when it could not be resolved.
 #[cfg(not(unix))]
 fn is_home(location: &Path) -> bool {
-    std::env::home_dir()
-        .and_then(|home| fs::canonicalize(home).ok())
-        .map(|home| strip_verbatim_prefix(&home))
-        .is_some_and(|home| home == strip_verbatim_prefix(location))
+    let location = strip_verbatim_prefix(location);
+    [std::env::home_dir(), crate::invocation::invoking_home()]
+        .into_iter()
+        .flatten()
+        .filter_map(|home| fs::canonicalize(home).ok())
+        .any(|home| strip_verbatim_prefix(&home) == location)
 }
 
 /// catches protected directories reached under another spelling or name: a bind mount of `/usr`
@@ -185,11 +193,6 @@ fn is_protected_by_identity(path: &Path, subtree: &[PathBuf], exact: &[PathBuf])
         .skip(1)
         .filter_map(identity)
         .any(|id| subtree.contains(&id))
-}
-
-#[cfg(not(unix))]
-fn is_protected_by_identity(_path: &Path, _subtree: &[PathBuf], _exact: &[PathBuf]) -> bool {
-    false
 }
 
 /// device and inode of a path, following links. `None` when it does not exist. the protected roots
@@ -260,9 +263,21 @@ fn platform_erase_only_subtree() -> Vec<PathBuf> {
     vec![PathBuf::from("/efi")]
 }
 
+/// the folder that holds every account's profile, like `/home` on unix.
 #[cfg(windows)]
 fn platform_erase_only_exact() -> Vec<PathBuf> {
-    Vec::new()
+    std::env::var_os("SystemDrive")
+        .map(|drive| drive_root(&drive).join("Users"))
+        .into_iter()
+        .collect()
+}
+
+/// `C:` alone names the current directory of that drive, so the root needs its separator.
+#[cfg(windows)]
+fn drive_root(drive: &std::ffi::OsStr) -> PathBuf {
+    let mut root = drive.to_os_string();
+    root.push("\\");
+    PathBuf::from(root)
 }
 
 #[cfg(windows)]
@@ -297,20 +312,12 @@ fn platform_protected_roots() -> Vec<PathBuf> {
     if std::env::var_os("SystemRoot").is_none()
         && let Some(drive) = std::env::var_os("SystemDrive")
     {
-        roots.push(PathBuf::from(drive).join("Windows"));
+        roots.push(drive_root(&drive).join("Windows"));
     }
     roots
 }
 
-/// `fs::canonicalize` returns `\\?\C:\...` on windows; strip it so paths compare with `C:\...`.
-#[cfg(windows)]
-fn strip_verbatim_prefix(path: &Path) -> PathBuf {
-    match path.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
-        Some(rest) => PathBuf::from(rest),
-        None => path.to_path_buf(),
-    }
-}
-
+/// windows strips the `\\?\` prefix of canonical paths (`windows::strip_verbatim_prefix`).
 #[cfg(not(windows))]
 fn strip_verbatim_prefix(path: &Path) -> PathBuf {
     path.to_path_buf()
@@ -366,6 +373,21 @@ mod tests {
         let system_root = PathBuf::from(std::env::var_os("SystemRoot").unwrap());
         let canonical = fs::canonicalize(&system_root).unwrap();
         assert!(is_protected(&canonical));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn profiles_folder_is_an_exact_erase_root_on_windows() {
+        assert_eq!(
+            drive_root(std::ffi::OsStr::new("C:")),
+            PathBuf::from(r"C:\")
+        );
+        let drive = std::env::var_os("SystemDrive").unwrap();
+        let users = fs::canonicalize(drive_root(&drive).join("Users")).unwrap();
+        assert!(is_protected(&users));
+        assert!(!is_system_protected(&users));
+        let public = fs::canonicalize(users.join("Public")).unwrap();
+        assert!(!is_erase_protected(&public));
     }
 
     #[cfg(unix)]

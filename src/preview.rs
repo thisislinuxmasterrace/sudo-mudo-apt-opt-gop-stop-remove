@@ -148,7 +148,8 @@ fn add(walk: &mut Walk<'_>, summary: &mut Summary, path: &Path, rel: &Path) {
         }
     };
 
-    if meta.is_file() && erase::link_count(&meta) > 1 && walk.refuse_hard_links {
+    // refuse_hard_links is unix-only (root): on windows the link count is not read for it.
+    if walk.refuse_hard_links && meta.is_file() && erase::link_count(path, &meta) > 1 {
         summary.coverage_limited = true;
         assessment = assessment.unattempted();
     }
@@ -168,9 +169,10 @@ fn add(walk: &mut Walk<'_>, summary: &mut Summary, path: &Path, rel: &Path) {
         }
     } else if file_type.is_file() {
         summary.files += 1;
-        if erase::link_count(&meta) > 1 {
+        if erase::link_count(path, &meta) > 1 {
             summary.hard_linked += 1;
-            if walk.seen.insert(data_id(&meta)) {
+            // a file whose identity cannot be read is counted: more than once is safer than never.
+            if data_id(path, &meta).is_none_or(|id| walk.seen.insert(id)) {
                 summary.bytes += meta.len();
             }
         } else {
@@ -183,15 +185,18 @@ fn add(walk: &mut Walk<'_>, summary: &mut Summary, path: &Path, rel: &Path) {
 
 /// identity of the data behind a file.
 #[cfg(unix)]
-fn data_id(meta: &fs::Metadata) -> (u64, u64) {
+fn data_id(_path: &Path, meta: &fs::Metadata) -> Option<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
 
-    (meta.dev(), meta.ino())
+    Some((meta.dev(), meta.ino()))
 }
 
+/// volume and file index, read from the entry without following links.
 #[cfg(not(unix))]
-fn data_id(_meta: &fs::Metadata) -> (u64, u64) {
-    (0, 0)
+fn data_id(path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
+    crate::platform::windows::file_id(path, false)
+        .ok()
+        .map(crate::platform::windows::FileId::pair)
 }
 
 /// counts the entries of `dir`. returns true when something inside was excluded, at any depth, which

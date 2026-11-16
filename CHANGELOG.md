@@ -9,8 +9,10 @@ all notable changes are listed here. the format follows [keep a changelog](https
 - `--wipe-free` passes all write random data (`--zero` adds a final zero pass); a pass that writes more than the volume size stops with exit code 4. tmpfs and ramfs are refused. linux fill files are created without a name where supported.
 - tmpfs and ramfs are memory filesystems; overlay, f2fs, nilfs2 and ubifs count as copy-on-write or log-structured. symlink warnings describe the filesystem holding the link.
 - linux medium: a rotational report on usb, removable or virtual disks is unknown, so such devices are refused unless `--i-know-what-i-am-doing`. bcachefs joins btrfs and zfs in the multi-device refusal.
-- unix protects `/home`, `/Users`, `/root`, `/srv`, `/mnt`, `/media`, `/run` as exact erase targets and `/efi` with its subtree. only `/` is refused as a filesystem root; `--wipe-free` accepts other mount points.
-- a file that changes size during a unix overwrite is kept under its name with exit code 4.
+- unix protects `/home`, `/Users`, `/root`, `/srv`, `/mnt`, `/media`, `/run` as exact erase targets and `/efi` with its subtree; windows protects `%SystemDrive%\Users`. only `/` is refused as a filesystem root; `--wipe-free` accepts other mount points.
+- a file that changes size during an overwrite is kept under its name with exit code 4.
+- windows renames a file to a random hidden name through its open handle before the overwrite and deletes it through the same handle (posix delete, then classic delete-on-close for fat and old windows); the path-based delete is only a fallback and checks that it opens the erased file.
+- windows reports hard-link counts in the summary; the root hard-link refusal stays unix-only.
 - names with control characters or bidi overrides are escaped in human output.
 - advisory git queries run as the invoking user; a repository owned by someone else is "could not tell".
 
@@ -22,6 +24,12 @@ all notable changes are listed here. the format follows [keep a changelog](https
 - `--explain` on a device no longer claims that it gives no advice before printing the advice.
 - copy detection makes relative paths absolute, so the dry run, `--explain` and the log agree.
 - the fscrypt check recognizes ubifs, and one byte-based mountinfo parser serves every mount lookup.
+- windows recursive erase refuses protected directories and the homes found below a target, including the invoking account's profile when sudo elevated another account; the keep and exit code 4 rules match unix.
+- windows protection recognizes system folders whose names are not valid unicode.
+- windows `--kill-holders` closes only the programs that were listed in the question; it stops if a program that was not listed holds the file.
+- windows restores the read-only attribute of an entry that is kept after a failed erase.
+- closing the windows console window waits for the erase to stop, so the name is restored and the log record is written.
+- the npm launcher no longer kills the erase on ctrl+c on windows.
 
 ## [0.2.0] - 2026-11-15
 

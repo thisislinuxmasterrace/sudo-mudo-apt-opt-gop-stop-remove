@@ -74,15 +74,20 @@ try {
 const child = spawn(binary, process.argv.slice(2), { stdio: "inherit" });
 
 // forward termination signals so the native process does not outlive the launcher (timeout, ci
-// cancel, closing terminal). windows only supports SIGINT/SIGBREAK; the others are skipped.
-const FORWARDED = process.platform === "win32" ? ["SIGINT", "SIGBREAK"] : ["SIGINT", "SIGTERM", "SIGHUP"];
+// cancel, closing terminal). windows only supports SIGINT, SIGBREAK and SIGHUP; the others are skipped.
+// SIGHUP is how libuv reports closing the console window: with a handler, node stays alive while
+// mudo.exe performs its bounded clean stop (without one node exits, and its job object kills the child).
+const WINDOWS = process.platform === "win32";
+const FORWARDED = WINDOWS ? ["SIGINT", "SIGBREAK", "SIGHUP"] : ["SIGINT", "SIGTERM", "SIGHUP"];
 // on a posix terminal ctrl-c already reaches the child through the tty (same foreground process
 // group), so SIGINT is only swallowed here (the handler keeps the launcher alive until the child
 // exits) and not forwarded a second time: the erase treats a second signal as a hard stop.
-const TTY_SIGINT = process.platform !== "win32" && process.stdin.isTTY === true;
+const TTY_SIGINT = !WINDOWS && process.stdin.isTTY === true;
 for (const signal of FORWARDED) {
   process.on(signal, () => {
-    if (signal === "SIGINT" && TTY_SIGINT) return;
+    // on windows the console delivers ctrl+c, ctrl+break and the close event to the child itself, which
+    // stops cleanly, while child.kill terminates it forcibly for every signal. so the signal is only swallowed.
+    if (WINDOWS || (signal === "SIGINT" && TTY_SIGINT)) return;
     if (child.exitCode === null && child.signalCode === null) child.kill(signal);
   });
 }

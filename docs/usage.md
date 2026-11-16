@@ -19,7 +19,7 @@ the invocation check is a cooperative guard against mistakes, not an authenticat
 
 ## what an erase does
 
-each file is renamed to a random hidden name, overwritten, then deleted. on unix its identity is checked after the rename and a file that cannot be removed is refused before overwrite. `-n` sets the passes (default 1): zeros, ones, random, repeating, with a random last pass. extra passes add wear without making flash, copy-on-write or compressed storage more reliable. symlinks are removed without following them; inaccessible and read-only entries are made accessible to their owner first.
+each file is renamed to a random hidden name, overwritten, then deleted. on unix its identity is checked after the rename and a file that cannot be removed is refused before overwrite. on windows the rename and the delete go through the open file handle (on filesystems without posix delete, such as fat, the file goes when the handle closes); if the rename fails, the file is overwritten under its own name, and a file that cannot be deleted is found only after the overwrite. `-n` sets the passes (default 1): zeros, ones, random, repeating, with a random last pass. extra passes add wear without making flash, copy-on-write or compressed storage more reliable. symlinks are removed without following them; inaccessible and read-only entries are made accessible to their owner first.
 
 ```sh
 sudo mudo apt opt gop stop remove venom.exe # one pass
@@ -95,7 +95,7 @@ codes and formats: [reference](reference.md). when stdin is not a terminal and a
 
 the handlers are installed only while an erase runs, after the initial confirmation. at that initial question, ctrl+c kills the process at once and nothing is erased.
 
-during an erase, the first ctrl+c, sigterm or sighup (a closing terminal) stops the write loops at the next write. the file being overwritten gets its name back, but its contents may already be partly overwritten. `interrupted: ...` is printed, paths not reached are not touched, and the run ends with exit code 4. a signal before the first path is erased ends with `aborted` and exit code 3.
+during an erase, the first ctrl+c, sigterm or sighup (a closing terminal) stops the write loops at the next write. the file being overwritten gets its name back (on windows when the rename worked), but its contents may already be partly overwritten. closing the console window on windows waits up to four seconds for this stop. `interrupted: ...` is printed, paths not reached are not touched, and the run ends with exit code 4. a signal before the first path is erased ends with `aborted` and exit code 3.
 
 a second signal exits at once with code 130 and does not restore the name, so a file can stay under its hidden name. a kill or a power loss has the same result, and a directory can be left partly erased under its original name.
 
@@ -103,7 +103,7 @@ a second signal exits at once with code 130 and does not restore the name, so a 
 
 a file held open by another program is not erased by default.
 
-- `--kill-holders` closes the programs that hold the file. it asks first unless `-f` is given. the tool asks the windows restart manager to shut the holders down and forces it when they do not close (`RmForceShutdown`), so services among them are stopped too. if the question is declined, the file is not erased and the run ends with exit code 4.
+- `--kill-holders` closes the programs that hold the file. it asks first unless `-f` is given. the tool asks the windows restart manager to shut the holders down and forces it when they do not close (`RmForceShutdown`), so services among them are stopped too. only the programs shown in the question are closed: if a program that was not listed holds the file by then, nothing is closed (a listed program that has exited meanwhile does not matter), the file is kept and the run ends with exit code 4. if the question is declined, the file is not erased and the run ends with exit code 4.
 - after holders close, the overwrite uses the size of the file opened on retry.
 - ctrl+c during either windows question ends the wait for input and stops the operation before closing holders or scheduling reboot deletion. an interrupt observed after an answer also prevents the action; signal delivery and the action are not atomic.
 - if the file still cannot be deleted after its contents are erased, the tool asks whether to delete it at the next reboot. with `-f` nothing is scheduled and the file stays; a declined question leaves it in place too. both end with exit code 4.

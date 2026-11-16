@@ -7,6 +7,8 @@ mod windows;
 
 #[cfg(unix)]
 pub(crate) use unix::{run_as_sudo_user, sudo_home};
+#[cfg(windows)]
+pub(crate) use windows::invoking_home;
 
 pub(crate) fn check() -> Result<(), String> {
     #[cfg(unix)]

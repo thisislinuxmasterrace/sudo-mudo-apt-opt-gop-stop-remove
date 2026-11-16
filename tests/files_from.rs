@@ -43,7 +43,7 @@ fn files_from_dash_reads_the_list_from_stdin() {
 
     assert_exit(&out, 0);
     assert!(!file.exists());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("note: 1 paths read from stdin"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("note: 1 path read from stdin"));
 }
 
 #[test]

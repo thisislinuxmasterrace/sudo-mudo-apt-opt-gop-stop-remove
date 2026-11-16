@@ -6,7 +6,7 @@ a code map for contributors. user behaviour is described in the [topic pages](RE
 
 one binary crate, executable `mudo`; there is no library. `src/invocation/` checks sudo before parsing, including help and version, and protects the invoking unix home. `examples/gen_docs.rs` generates the man page and completions from `src/cli.rs`; fish uses a phrase predicate because clap's generator limits subcommand depth.
 
-the code has three erase paths: files and trees (`src/erase/`), whole block devices on linux (`src/device/`) and the free space of a volume (`src/wipe.rs`). they share validation (`safety`), warnings (`storage`), the overwrite patterns, the interrupt flag and the log.
+the code has three erase paths: files and trees (`src/erase/`), whole block devices on linux (`src/device/`) and the free space of a volume (`src/wipe/`). they share validation (`safety`), warnings (`storage`), the overwrite patterns, the interrupt flag and the log.
 
 ## module map
 
@@ -17,9 +17,9 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 | `src/preview/`, `preview.rs`, `assessment.rs`, `assessment/` | summaries, json and per-entry assessments |
 | `src/explain.rs`, `copies.rs` | advice and possible copies |
 | `src/advisory.rs`, `copies/git.rs`, `snapshots.rs` | bounded read-only tool lookups for explicit explanations |
-| `src/safety.rs`, `safety/unix.rs`, `storage/`, `entry.rs` | path and opened-ancestor protection, storage facts and windows reparse classification |
+| `src/safety.rs`, `safety/unix.rs`, `storage/`, `entry.rs` | path and opened-ancestor protection, storage facts (medium and verdict are enums; `storage/mountinfo.rs` is the shared byte-based mountinfo parser) and windows reparse classification |
 | `src/erase/`, `verify.rs` | file and tree erasure, read-back verification |
-| `src/wipe.rs`, `device/` | free-space and linux device erasure |
+| `src/wipe/`, `device/` | free-space and linux device erasure; wipe is `mod.rs` (passes), `fill.rs` (fill loop and size bound), `temp.rs` (unnamed or named fill files) |
 | `src/log.rs`, `json.rs`, `progress.rs` | reports and progress |
 | `src/ui.rs` | human output, stream-specific terminal colors, headings, prompts and result summaries |
 | `src/platform/` | windows restart manager, posix delete and reboot deletion |
@@ -51,6 +51,8 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 - unix renames each entry and checks its identity before deletion; files that cannot be removed are refused before overwrite. the descriptor-based recursive walk cannot be redirected by a swapped directory. a detected substitution is restored when possible, but the later unlink is not atomic with the check. linux uses `RENAME_NOREPLACE` where supported; the fallback checks the name before renaming and leaves a small window.
 - before opening an entry, the owner's bits needed for access are added. on linux through an `O_PATH` handle and `/proc/self/fd`; elsewhere by name with the identity checked first.
 - anything that cannot be read fails closed: the mount table, sysfs for devices, the filesystem type for `--wipe-free`.
+- walk entries are checked by identity against the protected identities; each command-line target also gets the full ancestor check.
+- advisory `git` runs as the invoking user (`run_as_sudo_user`).
 - a protected-path comparison on unix is by `(dev, ino)`, not by spelling. `is_system_protected` reads no environment variable on unix.
 - `--log` is created with `create_new`, flushed per line, and a failed write stops the erase.
 - the requested pass sequence ends with random data; `--zero` adds one final zero pass. `--verify` reproduces the final bytes from a seed held in memory or checks zeros.

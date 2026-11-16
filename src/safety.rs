@@ -59,6 +59,8 @@ pub fn validate_target(
 /// a filesystem root is refused even with `allow_protected`, as it is for erase.
 /// the home directory is not checked: filling its free space changes no existing file.
 /// a symlink to a directory is accepted: only the filesystem behind it is used, nothing is removed.
+/// unix checks the retained directory descriptor instead (`safety::unix::check_wipe`).
+#[cfg(any(not(unix), test))]
 pub fn validate_wipe_dir(path: &Path, allow_protected: bool) -> Result<bool, String> {
     // follows a symlink on purpose: the filesystem behind the link is the one that gets filled.
     let meta = fs::metadata(path).map_err(|err| format!("{}: {err}", crate::ui::shown(path)))?;
@@ -99,9 +101,9 @@ fn location_of(path: &Path, is_symlink: bool) -> io::Result<PathBuf> {
 }
 
 /// returns true for filesystem roots, for anything under a protected system location, for the
-/// directories listed in `exact_roots`, and for the home directory itself.
+/// directories listed in `exact_roots` and `erase_only_exact_roots`, and for the home directory itself.
 fn is_protected(location: &Path) -> bool {
-    is_system_protected(location) || is_home(location)
+    is_system_protected(location) || is_erase_protected(location) || is_home(location)
 }
 
 /// the system part of `is_protected`. `--wipe-free` checks only this, because it touches no files.
@@ -113,9 +115,25 @@ fn is_system_protected(location: &Path) -> bool {
     if path.parent().is_none() {
         return true;
     }
-    protected_roots().iter().any(|root| path.starts_with(root))
-        || exact_roots().contains(&path)
-        || is_protected_by_identity(&path)
+    covered_by(&path, &protected_roots(), &exact_roots())
+}
+
+/// the roots that only erasing protects, which `--wipe-free` may still use: it adds files to them
+/// and removes none.
+fn is_erase_protected(location: &Path) -> bool {
+    covered_by(
+        &strip_verbatim_prefix(location),
+        &erase_only_subtree_roots(),
+        &erase_only_exact_roots(),
+    )
+}
+
+/// true when `path` is, or is below, one of the `subtree` roots, or is one of the `exact` roots,
+/// by spelling or by identity.
+fn covered_by(path: &Path, subtree: &[PathBuf], exact: &[PathBuf]) -> bool {
+    subtree.iter().any(|root| path.starts_with(root))
+        || exact.iter().any(|root| root == path)
+        || is_protected_by_identity(path, subtree, exact)
 }
 
 /// the home directory itself, as the platform reports it (`HOME` or the passwd entry on unix,
@@ -149,17 +167,11 @@ fn is_home(location: &Path) -> bool {
 /// at `~/x`, or `/USR/bin` on a case-insensitive filesystem. the directory itself is compared with
 /// both kinds of roots; its ancestors only with the roots that protect everything below them.
 #[cfg(unix)]
-fn is_protected_by_identity(path: &Path) -> bool {
+fn is_protected_by_identity(path: &Path, subtree: &[PathBuf], exact: &[PathBuf]) -> bool {
     use std::os::unix::fs::MetadataExt;
 
-    let subtree: Vec<(u64, u64)> = protected_roots()
-        .iter()
-        .filter_map(|root| identity(root))
-        .collect();
-    let exact: Vec<(u64, u64)> = exact_roots()
-        .iter()
-        .filter_map(|root| identity(root))
-        .collect();
+    let subtree: Vec<(u64, u64)> = subtree.iter().filter_map(|root| identity(root)).collect();
+    let exact: Vec<(u64, u64)> = exact.iter().filter_map(|root| identity(root)).collect();
     // symlink_metadata: a link to a protected directory is not the directory and may be removed.
     if let Ok(meta) = fs::symlink_metadata(path)
         && meta.is_dir()
@@ -176,7 +188,7 @@ fn is_protected_by_identity(path: &Path) -> bool {
 }
 
 #[cfg(not(unix))]
-fn is_protected_by_identity(_path: &Path) -> bool {
+fn is_protected_by_identity(_path: &Path, _subtree: &[PathBuf], _exact: &[PathBuf]) -> bool {
     false
 }
 
@@ -201,6 +213,17 @@ fn exact_roots() -> Vec<PathBuf> {
     canonical_forms(platform_exact_roots())
 }
 
+/// directories that hold other accounts' data, mounted volumes or runtime state. unlike
+/// `exact_roots`, `--wipe-free` may use them: it only adds files. only the directory itself is protected.
+fn erase_only_exact_roots() -> Vec<PathBuf> {
+    canonical_forms(platform_erase_only_exact())
+}
+
+/// like `erase_only_exact_roots`, but everything below is protected too.
+fn erase_only_subtree_roots() -> Vec<PathBuf> {
+    canonical_forms(platform_erase_only_subtree())
+}
+
 fn canonical_forms(roots: Vec<PathBuf>) -> Vec<PathBuf> {
     roots
         .into_iter()
@@ -221,6 +244,29 @@ fn platform_exact_roots() -> Vec<PathBuf> {
 
 #[cfg(windows)]
 fn platform_exact_roots() -> Vec<PathBuf> {
+    Vec::new()
+}
+
+#[cfg(unix)]
+fn platform_erase_only_exact() -> Vec<PathBuf> {
+    ["/home", "/Users", "/root", "/srv", "/mnt", "/media", "/run"]
+        .iter()
+        .map(PathBuf::from)
+        .collect()
+}
+
+#[cfg(unix)]
+fn platform_erase_only_subtree() -> Vec<PathBuf> {
+    vec![PathBuf::from("/efi")]
+}
+
+#[cfg(windows)]
+fn platform_erase_only_exact() -> Vec<PathBuf> {
+    Vec::new()
+}
+
+#[cfg(windows)]
+fn platform_erase_only_subtree() -> Vec<PathBuf> {
     Vec::new()
 }
 
@@ -349,6 +395,23 @@ mod tests {
             &var.join("log").join("file-that-does-not-exist")
         ));
         assert!(!is_protected(Path::new("/Volumes/usb/file")));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn user_data_roots_are_protected_for_erase_only() {
+        for root in ["/home", "/root", "/mnt", "/media", "/run", "/srv"] {
+            let Ok(root) = fs::canonicalize(root) else {
+                continue;
+            };
+            assert!(is_protected(&root), "{root:?}");
+            assert!(!is_system_protected(&root), "{root:?}");
+            assert_eq!(validate_wipe_dir(&root, false), Ok(false), "{root:?}");
+            assert!(!is_protected(&root.join("entry-that-does-not-exist")));
+        }
+        assert!(is_protected(Path::new("/efi")));
+        assert!(is_protected(Path::new("/efi/boot")));
+        assert!(!is_system_protected(Path::new("/efi/boot")));
     }
 
     #[test]

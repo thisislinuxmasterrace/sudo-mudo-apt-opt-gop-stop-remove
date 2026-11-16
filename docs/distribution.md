@@ -8,7 +8,7 @@ installing `sudo mudo apt opt gop stop remove` through release archives, cargo, 
 cargo install sudo-mudo-apt-opt-gop-stop-remove
 ```
 
-needs rust 1.88 or newer. installs only the executable `mudo`; invoke it as `sudo mudo apt opt gop stop remove ...`.
+needs rust 1.88 or newer. installs only the executable `mudo`; invoke it as `sudo mudo apt opt gop stop remove ...`. sudo does not search `~/.cargo/bin` or a user npm prefix; then run `sudo "$(command -v mudo)" apt opt gop stop remove ...`.
 
 ## release archives
 

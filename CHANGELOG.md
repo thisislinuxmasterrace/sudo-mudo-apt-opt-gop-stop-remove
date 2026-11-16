@@ -4,11 +4,24 @@ all notable changes are listed here. the format follows [keep a changelog](https
 
 ## [Unreleased]
 
+### changed
+
+- `--wipe-free` passes all write random data (`--zero` adds a final zero pass); a pass that writes more than the volume size stops with exit code 4. tmpfs and ramfs are refused. linux fill files are created without a name where supported.
+- tmpfs and ramfs are memory filesystems; overlay, f2fs, nilfs2 and ubifs count as copy-on-write or log-structured. symlink warnings describe the filesystem holding the link.
+- linux medium: a rotational report on usb, removable or virtual disks is unknown, so such devices are refused unless `--i-know-what-i-am-doing`. bcachefs joins btrfs and zfs in the multi-device refusal.
+- unix protects `/home`, `/Users`, `/root`, `/srv`, `/mnt`, `/media`, `/run` as exact erase targets and `/efi` with its subtree. only `/` is refused as a filesystem root; `--wipe-free` accepts other mount points.
+- a file that changes size during a unix overwrite is kept under its name with exit code 4.
+- names with control characters or bidi overrides are escaped in human output.
+- advisory git queries run as the invoking user; a repository owned by someone else is "could not tell".
+
 ### fixed
 
 - unix erase retains selected parent directories across confirmation, so parent symlink changes cannot redirect it; replaced targets are kept.
 - recursive unix erase preserves protected directories, including home, when selected through an ancestor, also with `-f`.
 - unix free-space wiping creates and unlinks fill files through the retained directory, with opened-directory protection and filesystem checks.
+- `--explain` on a device no longer claims that it gives no advice before printing the advice.
+- copy detection makes relative paths absolute, so the dry run, `--explain` and the log agree.
+- the fscrypt check recognizes ubifs, and one byte-based mountinfo parser serves every mount lookup.
 
 ## [0.2.0] - 2026-11-15
 

@@ -70,7 +70,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         if cli.explain {
             crate::ui::section("device advice", true);
             crate::ui::message!("  {}:", crate::ui::shown(&target.shown));
-            for line in super::advice::lines(target.partition, facts.rotational != "1") {
+            for line in super::advice::lines(target.partition, !facts.reported_rotating()) {
                 crate::ui::message!("  - {line}");
             }
         }

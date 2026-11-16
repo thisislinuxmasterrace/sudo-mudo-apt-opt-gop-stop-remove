@@ -73,6 +73,10 @@ pub(crate) fn find(path: &Path, meta: &Metadata) -> Vec<Found> {
     if !meta.is_file() && !meta.is_dir() {
         return Vec::new();
     }
+    // a relative path has no ancestors above the current directory, so a sync folder or git root
+    // above it would be missed.
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let path = absolute.as_path();
     let dir = if meta.is_dir() {
         Some(path)
     } else {

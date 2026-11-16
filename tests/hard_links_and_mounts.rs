@@ -27,6 +27,22 @@ fn protected_path_needs_the_override_flag() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn user_data_directories_are_refused_as_erase_targets() {
+    for root in ["/home", "/root", "/srv", "/mnt", "/media", "/run"] {
+        if !std::path::Path::new(root).is_dir() {
+            continue;
+        }
+        let refused = run(&["--dry-run", "-r", root], "");
+        assert_exit(&refused, 1);
+        assert!(
+            String::from_utf8_lossy(&refused.stderr).contains("protected system path"),
+            "{root}"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn mount_point_target_is_refused_before_anything_is_erased() {
     let dir = tempfile::tempdir().unwrap();
     let file = write_file(dir.path(), "a.txt");
@@ -204,4 +220,70 @@ fn external_and_excluded_hard_links_keep_original_contents() {
         assert_eq!(fs::read(&file).unwrap(), b"sensitive data");
         assert_eq!(fs::read(&other).unwrap(), b"sensitive data");
     }
+}
+
+/// a tmpfs mounted inside the tree: its content stays, the holding directory stays, the rest of the
+/// tree is erased and the run ends with exit code 4. needs root to mount; without it the test is
+/// skipped locally and fails under CI (where the variable `CI` is set).
+#[cfg(target_os = "linux")]
+#[test]
+fn mount_point_inside_a_tree_is_skipped_and_its_content_kept() {
+    use std::path::PathBuf;
+    use std::process::{Command, Stdio};
+
+    // unmounts on drop, so a panic still lets `TempDir` remove the tree.
+    struct Mounted(PathBuf);
+    impl Drop for Mounted {
+        fn drop(&mut self) {
+            let unmounted = |extra: &[&str]| {
+                Command::new("umount")
+                    .args(extra)
+                    .arg(&self.0)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_ok_and(|status| status.success())
+            };
+            if !unmounted(&[]) {
+                unmounted(&["-l"]);
+            }
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let tree = make_tree(dir.path(), "tree", 2);
+    let mount = tree.join("mnt");
+    let sub = tree.join("sub");
+    fs::create_dir(&mount).unwrap();
+    fs::create_dir(&sub).unwrap();
+    write_file(&sub, "deep.txt");
+    let mounted = Command::new("mount")
+        .args(["-t", "tmpfs", "tmpfs"])
+        .arg(&mount)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !mounted {
+        if std::env::var_os("CI").is_some() {
+            panic!("a tmpfs could not be mounted: the mount point case was not tested");
+        }
+        eprintln!("skipped: a tmpfs could not be mounted (not root?)");
+        return;
+    }
+    let _mounted = Mounted(mount.clone());
+    let inner = write_file(&mount, "inner.txt");
+
+    let out = run(&["-r", "-f", path_str(&tree)], "");
+
+    assert_exit(&out, 4);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("mount point or on another filesystem"),
+        "{stderr}"
+    );
+    assert_eq!(fs::read(&inner).unwrap(), b"sensitive data");
+    assert!(mount.is_dir() && tree.is_dir());
+    assert!(!tree.join("f0.txt").exists() && !tree.join("f1.txt").exists());
+    assert!(!sub.exists());
 }

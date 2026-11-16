@@ -54,6 +54,10 @@ pub(crate) fn is_mount_boundary_in(
     if device(&meta) != parent_dev {
         return Ok(true);
     }
+    // the table is always empty on windows: do not resolve the path for nothing.
+    if cfg!(windows) {
+        return Ok(false);
+    }
     // bind mounts share the device id of their parent, so the mount table is needed as well.
     mounts.contains(&fs::canonicalize(entry)?)
 }
@@ -90,26 +94,16 @@ impl MountTable {
 /// as it is and does not make the whole table unreadable.
 #[cfg(target_os = "linux")]
 fn mount_points() -> io::Result<Vec<PathBuf>> {
-    fs::read("/proc/self/mountinfo").map(|table| mountinfo_points(&table))
+    use crate::storage::mountinfo;
+
+    mountinfo::read_table().map(|table| mountinfo::mount_points(&table))
 }
 
+/// decodes the `\ooo` octal escapes of mountinfo and `/proc/swaps`, as bytes. the kernel escapes every
+/// backslash too, so a backslash followed by three octal digits is always an escape. only the shared
+/// parser in `storage::mountinfo` calls this.
 #[cfg(target_os = "linux")]
-fn mountinfo_points(table: &[u8]) -> Vec<PathBuf> {
-    use std::ffi::OsString;
-    use std::os::unix::ffi::OsStringExt;
-
-    table
-        .split(|&byte| byte == b'\n')
-        // field 5 is the mount point
-        .filter_map(|line| line.split(|&byte| byte == b' ').nth(4))
-        .map(|escaped| PathBuf::from(OsString::from_vec(unescape_octal(escaped))))
-        .collect()
-}
-
-/// decodes the `\ooo` octal escapes of mountinfo. the kernel escapes every backslash too, so a
-/// backslash followed by three octal digits is always an escape.
-#[cfg(target_os = "linux")]
-fn unescape_octal(escaped: &[u8]) -> Vec<u8> {
+pub(crate) fn unescape_mountinfo(escaped: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(escaped.len());
     let mut index = 0;
     while index < escaped.len() {
@@ -169,15 +163,6 @@ fn mount_points() -> io::Result<Vec<PathBuf>> {
     Ok(Vec::new())
 }
 
-/// mountinfo escapes space, tab, newline and backslash as octal sequences.
-#[cfg(target_os = "linux")]
-pub(crate) fn unescape_mountinfo(path: &str) -> String {
-    path.replace("\\040", " ")
-        .replace("\\011", "\t")
-        .replace("\\012", "\n")
-        .replace("\\134", "\\")
-}
-
 /// same test as `is_mount_boundary`, for an entry already stat'ed through its directory.
 #[cfg(unix)]
 pub(super) fn is_boundary(
@@ -204,28 +189,11 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn mountinfo_escapes_are_decoded() {
-        assert_eq!(unescape_mountinfo(r"/mnt/a\040b\134c"), "/mnt/a b\\c");
-        assert_eq!(unescape_octal(br"/mnt/a\040b\134c\011"), b"/mnt/a b\\c\t");
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn mount_point_that_is_not_utf8_is_kept_as_bytes() {
-        use std::ffi::OsStr;
-        use std::os::unix::ffi::OsStrExt;
-
-        let table = b"22 1 0:21 / / rw - ext4 /dev/sda1 rw\n\
-            36 22 0:30 / /mnt/a\xffb\\040c rw - ext4 /dev/sdb1 rw\n";
-
-        let points = mountinfo_points(table);
-
         assert_eq!(
-            points,
-            [
-                PathBuf::from("/"),
-                PathBuf::from(OsStr::from_bytes(b"/mnt/a\xffb c")),
-            ]
+            unescape_mountinfo(br"/mnt/a\040b\134c\011"),
+            b"/mnt/a b\\c\t"
         );
+        assert_eq!(unescape_mountinfo(br"\12"), br"\12");
     }
 
     #[test]

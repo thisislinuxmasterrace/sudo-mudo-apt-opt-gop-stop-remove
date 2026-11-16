@@ -24,9 +24,11 @@ refused for erase and for `--wipe-free`:
 
 - unix: `/bin`, `/sbin`, `/usr`, `/etc`, `/boot`, `/lib`, `/lib64`, `/dev`, `/proc`, `/sys`, `/System`, `/Library`, also under their resolved paths (`/private/etc` on macos), and everything inside them.
 - windows: the system folders, read from `SystemRoot`, `ProgramFiles` and `SystemDrive`.
-- the root of a filesystem.
+- the root of a filesystem on windows; on unix only `/`. other unix mount points are refused as erase targets [because they are mount points](#mount-points), and `--wipe-free` accepts them.
 
 `/var`, `/opt`, `/Volumes` and `/private` are refused as directories only: files inside them can be erased, so volumes under `/Volumes` and `/private/tmp` stay usable.
+
+for erase only, on unix, `/home`, `/Users`, `/root`, `/srv`, `/mnt`, `/media` and `/run` are refused as exact targets (their contents stay erasable), and `/efi` with everything inside it. `--wipe-free` is not affected.
 
 on unix a directory is compared by device and inode with the protected ones and their ancestors, not by spelling. `/USR/bin` on a case-insensitive macos volume is `/usr/bin`, and a bind mount of `/usr` at `~/x` is refused too.
 
@@ -58,5 +60,5 @@ fifos, sockets and character devices are refused when named, and listed as `othe
 
 ## what lifts a refusal
 
-- `--i-know-what-i-am-doing` lifts the protected-path refusal (a warning is printed every time), the hard-link rule under root and, for devices, the refusals listed in [devices](devices.md#refusals). it never lifts the filesystem root, mount-point targets, or the confirmation of a device erase.
+- `--i-know-what-i-am-doing` lifts the protected-path refusal (a warning is printed every time), the hard-link rule under root and, for devices, the refusals listed in [devices](devices.md#refusals). it never lifts the filesystem root (`/` on unix), mount-point targets, or the confirmation of a device erase.
 - `-f` skips questions only. it does not lift any refusal.

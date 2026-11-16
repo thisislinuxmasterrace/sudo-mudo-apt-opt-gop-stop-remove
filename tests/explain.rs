@@ -99,6 +99,65 @@ fn explain_tells_that_a_link_is_not_its_target() {
     assert!(target.exists() && fs::symlink_metadata(&link).is_ok());
 }
 
+/// a file on tmpfs: the dry run warns that old pages may sit in swap, and --explain says so in one line.
+/// needs root to mount; without it the test is skipped locally and fails under CI.
+#[cfg(target_os = "linux")]
+#[test]
+fn tmpfs_target_gets_the_memory_filesystem_warning_and_advice() {
+    use std::path::PathBuf;
+    use std::process::{Command, Stdio};
+
+    // unmounts on drop, so a panic still lets `TempDir` remove the directory.
+    struct Mounted(PathBuf);
+    impl Drop for Mounted {
+        fn drop(&mut self) {
+            let unmounted = |extra: &[&str]| {
+                Command::new("umount")
+                    .args(extra)
+                    .arg(&self.0)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_ok_and(|status| status.success())
+            };
+            if !unmounted(&[]) {
+                unmounted(&["-l"]);
+            }
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let mount = dir.path().join("mem");
+    fs::create_dir(&mount).unwrap();
+    let mounted = Command::new("mount")
+        .args(["-t", "tmpfs", "tmpfs"])
+        .arg(&mount)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !mounted {
+        if std::env::var_os("CI").is_some() {
+            panic!("a tmpfs could not be mounted: the memory filesystem case was not tested");
+        }
+        eprintln!("skipped: a tmpfs could not be mounted (not root?)");
+        return;
+    }
+    let _mounted = Mounted(mount.clone());
+    let file = write_file(&mount, "secret.txt");
+
+    let out = run(&["--explain", path_str(&file)], "");
+
+    assert_exit(&out, 0);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("memory filesystem (tmpfs, ramfs)"), "{text}");
+    assert!(text.contains("old pages may sit in swap"), "{text}");
+    assert!(stderr.contains("tmpfs is a memory filesystem"), "{stderr}");
+    assert!(!text.contains("verdict\":\"effective"), "{text}");
+    assert_eq!(fs::read(&file).unwrap(), b"sensitive data");
+}
+
 #[test]
 fn explain_conflicts_with_json_and_wipe_free() {
     let dir = tempfile::tempdir().unwrap();

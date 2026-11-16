@@ -3,45 +3,54 @@
 use std::path::Path;
 use std::process::Command;
 
-fn read(command: &mut Command) -> Option<String> {
-    let (status, bytes) = crate::advisory::output(command)?;
-    status
-        .success()
-        .then(|| String::from_utf8(bytes).ok())
-        .flatten()
+use crate::advisory::Failure;
+
+/// what a check found, or why it found nothing.
+type Found = Result<String, Failure>;
+
+fn read(command: &mut Command) -> Found {
+    let (status, bytes) = crate::advisory::checked_output(command)?;
+    if !status.success() {
+        return Err(Failure::Unavailable);
+    }
+    String::from_utf8(bytes).map_err(|_| Failure::Unavailable)
 }
 
 pub(crate) fn explain(path: &Path) -> Option<String> {
+    // a symbolic link is neither a file nor a directory here, so it is left out too.
     let meta = std::fs::symlink_metadata(path).ok()?;
-    if (!meta.is_file() && !meta.is_dir()) || meta.file_type().is_symlink() {
+    if !meta.is_file() && !meta.is_dir() {
         return None;
     }
     let filesystem = crate::storage::filesystem_name(path)?;
     let result = match filesystem.as_str() {
         "btrfs" => btrfs(path),
         "zfs" => zfs(path),
-        "apfs" => Some("apfs and time machine snapshots are not checked; `tmutil listlocalsnapshots /` lists local ones".to_owned()),
+        "apfs" => Ok("apfs and time machine snapshots are not checked; `tmutil listlocalsnapshots /` lists local ones".to_owned()),
         _ => return None,
-    }.unwrap_or_else(|| "could not check: the tool is unavailable, timed out or did not identify the storage".to_owned());
+    }.unwrap_or_else(|failure| match failure {
+        Failure::TooLarge => "could not check: output too large".to_owned(),
+        Failure::Unavailable => "could not check: the tool is unavailable, timed out or did not identify the storage".to_owned(),
+    });
     Some(format!(
         "  - snapshots: {}: {result}. other backups are not checked.",
         crate::ui::shown(path)
     ))
 }
 
-fn btrfs(path: &Path) -> Option<String> {
+fn btrfs(path: &Path) -> Found {
     btrfs_using(path, std::ffi::OsStr::new("btrfs"))
 }
 
-fn btrfs_using(path: &Path, tool: &std::ffi::OsStr) -> Option<String> {
-    let path = std::path::absolute(path).ok()?;
-    let meta = std::fs::symlink_metadata(&path).ok()?;
+fn btrfs_using(path: &Path, tool: &std::ffi::OsStr) -> Found {
+    let path = std::path::absolute(path).map_err(|_| Failure::Unavailable)?;
+    let meta = std::fs::symlink_metadata(&path).map_err(|_| Failure::Unavailable)?;
     let directory = if meta.is_dir() {
         path.as_path()
     } else if meta.is_file() {
-        path.parent()?
+        path.parent().ok_or(Failure::Unavailable)?
     } else {
-        return None;
+        return Err(Failure::Unavailable);
     };
     let id: u64 = read(
         Command::new(tool)
@@ -50,13 +59,13 @@ fn btrfs_using(path: &Path, tool: &std::ffi::OsStr) -> Option<String> {
     )?
     .trim()
     .parse()
-    .ok()?;
+    .map_err(|_| Failure::Unavailable)?;
     let output = read(
         Command::new(tool)
             .args(["subvolume", "list", "-a", "-u", "-q"])
             .arg(directory),
     )?;
-    btrfs_result(id, &output)
+    btrfs_result(id, &output).ok_or(Failure::Unavailable)
 }
 
 fn btrfs_result(id: u64, output: &str) -> Option<String> {
@@ -92,8 +101,8 @@ fn btrfs_result(id: u64, output: &str) -> Option<String> {
     })
 }
 
-fn zfs(path: &Path) -> Option<String> {
-    let path = std::fs::canonicalize(path).ok()?;
+fn zfs(path: &Path) -> Found {
+    let path = std::fs::canonicalize(path).map_err(|_| Failure::Unavailable)?;
     let mounts = read(Command::new("zfs").args([
         "list",
         "-H",
@@ -106,7 +115,8 @@ fn zfs(path: &Path) -> Option<String> {
         .lines()
         .filter_map(|line| line.split_once('\t'))
         .filter(|(_, mount)| Path::new(mount).is_absolute() && path.starts_with(mount))
-        .max_by_key(|(_, mount)| mount.len())?
+        .max_by_key(|(_, mount)| mount.len())
+        .ok_or(Failure::Unavailable)?
         .0;
     let snapshots = read(
         Command::new("zfs").args(["list", "-H", "-t", "snapshot", "-o", "name", "-r", dataset]),
@@ -118,7 +128,7 @@ fn zfs(path: &Path) -> Option<String> {
                 .is_some_and(|(name, _)| name == dataset)
         })
         .count();
-    Some(if count > 0 {
+    Ok(if count > 0 {
         format!(
             "{} of zfs dataset {dataset} may keep older versions; remove them first",
             crate::ui::count(count as u64, "snapshot", "snapshots")
@@ -152,12 +162,27 @@ mod tests {
         for target in [&path, &dir.path().to_path_buf()] {
             assert_eq!(
                 btrfs_using(target, tool.as_os_str()).as_deref(),
-                Some(
+                Ok(
                     "1 direct snapshot of its btrfs subvolume may keep older versions; remove them first"
                 )
             );
         }
         assert_eq!(std::fs::read(path).unwrap(), b"contents");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn oversized_tool_output_is_reported_as_too_large() {
+        // no script file: running a freshly written executable races with forks in parallel tests (ETXTBSY).
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            read(Command::new("sh").args(["-c", "head -c 70000 /dev/zero"])),
+            Err(Failure::TooLarge)
+        );
+        assert_eq!(
+            btrfs_using(dir.path(), std::ffi::OsStr::new("mudo-missing-tool")),
+            Err(Failure::Unavailable)
+        );
     }
 
     #[test]

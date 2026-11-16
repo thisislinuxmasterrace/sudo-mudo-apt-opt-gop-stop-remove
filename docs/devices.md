@@ -19,16 +19,16 @@ before anything is written, with exit code 1, the tool refuses a device that:
 - is mounted, or has a partition that is. a partition also checks the mounts, swap and holders of its whole disk.
 - is used as swap.
 - has holders (sysfs `holders`: device-mapper, md or lvm on top of it).
-- is not a hard disk: ssds and devices whose type is unknown are refused (sysfs `queue/rotational`).
+- is not a known hard disk: ssds and devices whose type is unknown are refused (sysfs `queue/rotational`). usb, removable and virtual disks count as unknown even when they report rotational.
 - has zero size (no medium).
 - is virtual: device-mapper, md or loop (`/sys/devices/virtual/`).
-- is checked while a btrfs or zfs filesystem is mounted anywhere on the system: these can span several devices and the mount table shows only one of them, so any mounted btrfs or zfs refuses the device.
+- is checked while a btrfs, zfs or bcachefs filesystem is mounted anywhere on the system: these can span several devices and the mount table shows only one of them, so any such mount refuses the device.
 
 if sysfs (`queue/rotational`, `holders`, `size`, `dev`), `/proc/swaps` or the mount table cannot be read, or a `holders` or `slaves` entry is missing, the device is refused (fail closed).
 
 after checks, the device is opened with `O_EXCL`; a busy device is refused with code 1. `--dry-run` does not open it and can pass when a real run would be refused.
 
-`--i-know-what-i-am-doing` lifts the mounted, swap, holders, not-a-hard-disk and btrfs/zfs refusals, with a warning for each, and opens the device without `O_EXCL`. it never lifts the virtual-device refusal, the zero size or the confirmation.
+`--i-know-what-i-am-doing` lifts the mounted, swap, holders, not-a-hard-disk and btrfs/zfs/bcachefs refusals, with a warning for each, and opens the device without `O_EXCL`. it never lifts the virtual-device refusal, the zero size or the confirmation.
 
 ## confirmation
 

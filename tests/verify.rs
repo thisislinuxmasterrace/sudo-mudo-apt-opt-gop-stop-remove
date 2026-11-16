@@ -84,7 +84,7 @@ fn verify_dry_run_prints_no_note_and_keeps_the_file() {
     let out = run(&["--verify", "--dry-run", path_str(&file)], "");
 
     assert_exit(&out, 0);
-    assert!(!String::from_utf8_lossy(&out.stderr).contains("--verify reads"));
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("--verify checks the new contents"));
     assert!(file.exists());
 }
 

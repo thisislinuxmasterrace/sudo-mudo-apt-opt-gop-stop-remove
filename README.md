@@ -25,7 +25,7 @@ scoop bucket add archhaze24 https://github.com/archhaze24/scoop-bucket
 scoop install sudo-mudo-apt-opt-gop-stop-remove
 ```
 
-cargo needs rust 1.88 or newer. the package is `sudo-mudo-apt-opt-gop-stop-remove`; the binary is `mudo`. [platforms and setup](docs/distribution.md).
+cargo needs rust 1.88 or newer. the package is `sudo-mudo-apt-opt-gop-stop-remove`; the binary is `mudo`. if sudo cannot find it (`~/.cargo/bin`, a user npm prefix), run `sudo "$(command -v mudo)" apt opt gop stop remove ...`. [platforms and setup](docs/distribution.md).
 
 ## build from source
 

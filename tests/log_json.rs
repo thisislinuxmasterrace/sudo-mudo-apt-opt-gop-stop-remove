@@ -15,22 +15,9 @@ fn log_lines(path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// a rough check of one json object per line: braces at the ends, and quotes that pair up.
+/// true when the line parses as exactly one json object.
 fn is_json_object(line: &str) -> bool {
-    if !line.starts_with('{') || !line.ends_with('}') {
-        return false;
-    }
-    let mut quotes = 0;
-    let mut escaped = false;
-    for ch in line.chars() {
-        match (escaped, ch) {
-            (true, _) => escaped = false,
-            (false, '\\') => escaped = true,
-            (false, '"') => quotes += 1,
-            _ => {}
-        }
-    }
-    quotes % 2 == 0 && !escaped
+    serde_json::from_str::<serde_json::Value>(line).is_ok_and(|value| value.is_object())
 }
 
 #[test]

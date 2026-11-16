@@ -34,7 +34,7 @@ use run::{run_erase, run_wipe_free};
 
 const NAME: &str = "mudo";
 
-// exit codes, documented in the README. clap exits with 2 on a bad command line by itself.
+// exit codes, documented in docs/reference.md. clap exits with 2 on a bad command line by itself.
 const EXIT_INVALID: u8 = 1;
 const EXIT_ARGS: u8 = 2;
 const EXIT_DECLINED: u8 = 3;
@@ -85,8 +85,8 @@ fn main() -> ExitCode {
         match read_paths(source, cli.null) {
             Ok(read) => {
                 crate::ui::message!(
-                    "note: {} paths read from {}",
-                    read.len(),
+                    "note: {} read from {}",
+                    crate::ui::count(read.len() as u64, "path", "paths"),
                     list_label(source)
                 );
                 given.extend(read);

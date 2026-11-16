@@ -1,114 +1,34 @@
-//! erases the free space of a filesystem: one pass per pattern, each pass fills the free blocks
-//! with temporary files that disappear by themselves.
+//! one fill pass: temporary files written until the volume is full, a size bound is crossed or a limit is reached.
 
 use std::fs::File;
-#[cfg(windows)]
-use std::fs::OpenOptions;
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
 
-/// keeps every fill file on the directory selected before confirmation.
-pub struct Directory {
-    path: PathBuf,
-    #[cfg(unix)]
-    file: File,
-    allow_protected: bool,
-}
-
-impl Directory {
-    pub fn open(path: &Path, allow_protected: bool) -> io::Result<Self> {
-        let selected = Self {
-            path: path.to_path_buf(),
-            #[cfg(unix)]
-            file: File::open(path)?,
-            allow_protected,
-        };
-        selected.check()?;
-        Ok(selected)
-    }
-
-    fn check(&self) -> io::Result<()> {
-        #[cfg(unix)]
-        {
-            crate::safety::unix::check_wipe(&self.file, self.allow_protected)?;
-            if !crate::storage::opened_wipe_allowed(&self.file) {
-                return Err(io::Error::other(
-                    "refusing to fill a network, fuse, unknown or unreadable filesystem",
-                ));
-            }
-        }
-        #[cfg(not(unix))]
-        crate::safety::validate_wipe_dir(&self.path, self.allow_protected)
-            .map_err(io::Error::other)?;
-        Ok(())
-    }
-}
-
-use crate::erase::{self, Options, Pattern};
+use super::{Directory, temp};
+use crate::erase::{self, Pattern};
 use crate::preview::human_bytes;
 use crate::progress::Progress;
 
 const CHUNK: usize = 1024 * 1024;
 const GIB: u64 = 1024 * 1024 * 1024;
 
-/// wipes the free space visible to `dir`, `opts.passes` times.
-///
-/// a pass writes its pattern into new blocks until the volume is full, then removes the file.
-/// the removed data stays in the free blocks, so each pass replaces the previous one. nothing is
-/// overwritten in place, so this also works on copy-on-write filesystems.
-///
-/// blocks reserved for root (ext4 reserves 5% by default) are not free for ordinary users and are
-/// left alone unless this runs as root.
-pub fn wipe_selected(dir: &Directory, opts: &Options) -> io::Result<u64> {
-    wipe_passes(dir, opts, None)
-}
-
-fn wipe_passes(dir: &Directory, opts: &Options, limit: Option<u64>) -> io::Result<u64> {
-    // the size is only known when a limit is given (tests); a wipe runs until the volume is full.
-    let total = limit.map(|max| max.saturating_mul(u64::from(opts.passes)));
-    let mut progress = Progress::new(total, opts.quiet);
-    let result = wipe_each_pass(dir, opts, limit, &mut progress);
-    progress.finish();
-    result
-}
-
-fn wipe_each_pass(
-    dir: &Directory,
-    opts: &Options,
-    limit: Option<u64>,
-    progress: &mut Progress,
-) -> io::Result<u64> {
-    let mut total = 0u64;
-    for pass in 0..opts.passes {
-        let pattern = opts.pattern(pass);
-        if opts.verbose {
-            progress.finish();
-            crate::ui::message!("  pass {}/{}: {}", pass + 1, opts.passes, pattern.name());
-        }
-        let written = fill_pass(dir, pattern, limit, opts.verbose, progress)?;
-        total += written;
-        if opts.verbose {
-            progress.finish();
-            crate::ui::message!(
-                "  pass {}/{} done: {} written",
-                pass + 1,
-                opts.passes,
-                human_bytes(written)
-            );
-        }
-    }
-    Ok(total)
+/// how a pass ended.
+pub(super) struct Done {
+    /// bytes written in the pass.
+    pub written: u64,
+    /// the pass wrote more than `bound`: the data did not land in free blocks.
+    pub exceeded: bool,
 }
 
 /// fills the free space with one pattern, using more files when a file reaches its size limit.
-/// returns the bytes written in this pass.
-fn fill_pass(
+/// `bound` is the volume size: writing past it proves the filesystem does not store the data as written.
+pub(super) fn fill_pass(
     dir: &Directory,
     pattern: Pattern,
     limit: Option<u64>,
+    bound: Option<u64>,
     verbose: bool,
     progress: &mut Progress,
-) -> io::Result<u64> {
+) -> io::Result<Done> {
     #[cfg(windows)]
     // fat32 reports disk full when a write crosses its per-file limit, even with free space left.
     let file_limit = match crate::storage::assessment_filesystem(&dir.path).as_deref() {
@@ -117,20 +37,27 @@ fn fill_pass(
     };
     #[cfg(not(windows))]
     let file_limit = None;
-    fill_pass_with(limit, |remaining| {
+    fill_pass_with(limit, bound, |remaining| {
         fill_file(dir, pattern, remaining, file_limit, verbose, progress)
     })
 }
 
 fn fill_pass_with(
     limit: Option<u64>,
+    bound: Option<u64>,
     mut fill_file: impl FnMut(Option<u64>) -> io::Result<Fill>,
-) -> io::Result<u64> {
+) -> io::Result<Done> {
+    // one byte past the bound is enough to prove the pass went beyond the volume.
+    let past_bound = bound.map(|size| size.saturating_add(1));
+    let cap = match (limit, past_bound) {
+        (Some(limit), Some(past)) => Some(limit.min(past)),
+        (limit, past) => limit.or(past),
+    };
     let mut total = 0u64;
     // closing an earlier file here would let the allocator reuse its blocks instead of filling new ones.
     let mut files = Vec::new();
     loop {
-        let remaining = limit.map(|max| max - total);
+        let remaining = cap.map(|max| max - total);
         if remaining == Some(0) {
             break;
         }
@@ -144,7 +71,10 @@ fn fill_pass_with(
             break;
         }
     }
-    Ok(total)
+    Ok(Done {
+        written: total,
+        exceeded: bound.is_some_and(|size| total > size),
+    })
 }
 
 struct Fill {
@@ -164,8 +94,7 @@ fn fill_file(
     progress: &mut Progress,
 ) -> io::Result<Fill> {
     dir.check()?;
-    let name = format!(".fill-{:016x}", rand::random::<u64>());
-    let mut file = create_temp(dir, &name)?;
+    let mut file = temp::create(dir)?;
     let mut buf = vec![0u8; CHUNK];
     let mut written = 0u64;
     let mut reported_gib = 0u64;
@@ -220,45 +149,6 @@ fn write_chunk(file: &mut impl Write, buf: &[u8]) -> io::Result<usize> {
         Ok(0) => Err(io::ErrorKind::WriteZero.into()),
         result => result,
     }
-}
-
-/// creates the temporary file so that it cannot outlive the process: on unix it is unlinked
-/// right away, on windows it is deleted when the last handle closes.
-#[cfg(unix)]
-fn create_temp(dir: &Directory, name: &str) -> io::Result<File> {
-    use nix::fcntl::{OFlag, openat};
-    use nix::sys::stat::Mode;
-    use nix::unistd::{UnlinkatFlags, unlinkat};
-
-    let file = File::from(openat(
-        &dir.file,
-        name,
-        OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_CLOEXEC,
-        Mode::S_IRUSR | Mode::S_IWUSR,
-    )?);
-    unlinkat(&dir.file, name, UnlinkatFlags::NoRemoveDir).map_err(|err| {
-        io::Error::other(format!(
-            "{err}; leftover file {}",
-            crate::ui::shown(&dir.path.join(name))
-        ))
-    })?;
-    Ok(file)
-}
-
-#[cfg(windows)]
-fn create_temp(dir: &Directory, name: &str) -> io::Result<File> {
-    use std::os::windows::fs::OpenOptionsExt;
-
-    use windows_sys::Win32::Foundation::GENERIC_WRITE;
-    use windows_sys::Win32::Storage::FileSystem::{DELETE, FILE_FLAG_DELETE_ON_CLOSE};
-
-    // std rejects create_new without write(true) before it looks at access_mode, which sets the real rights.
-    OpenOptions::new()
-        .write(true)
-        .access_mode(GENERIC_WRITE | DELETE)
-        .create_new(true)
-        .custom_flags(FILE_FLAG_DELETE_ON_CLOSE)
-        .open(dir.path.join(name))
 }
 
 #[cfg(target_os = "linux")]
@@ -361,7 +251,7 @@ mod tests {
             let mut originals = Vec::new();
             let mut clones = Vec::new();
             let mut calls = 0;
-            let result = fill_pass_with(None, |_| {
+            let result = fill_pass_with(None, None, |_| {
                 for (fd, dev, ino) in &originals {
                     let meta = fs::metadata(format!("/proc/self/fd/{fd}")).unwrap();
                     assert_eq!((meta.dev(), meta.ino()), (*dev, *ino));
@@ -382,9 +272,9 @@ mod tests {
                 })
             });
             if failure == libc::ENOSPC {
-                assert_eq!(result.unwrap(), 2);
+                assert_eq!(result.unwrap().written, 2);
             } else {
-                assert_eq!(result.unwrap_err().raw_os_error(), Some(failure));
+                assert_eq!(result.err().unwrap().raw_os_error(), Some(failure));
             }
             assert_eq!(calls, 3);
             for (fd, dev, ino) in originals {
@@ -400,7 +290,7 @@ mod tests {
     fn zero_progress_stops_pass() {
         let dir = tempfile::tempdir().unwrap();
         let mut calls = 0;
-        let written = fill_pass_with(None, |_| {
+        let done = fill_pass_with(None, None, |_| {
             calls += 1;
             Ok(Fill {
                 file: tempfile::tempfile_in(dir.path()).unwrap(),
@@ -409,26 +299,15 @@ mod tests {
             })
         })
         .unwrap();
-        assert_eq!((written, calls), (0, 1));
+        assert_eq!((done.written, calls), (0, 1));
     }
 
     #[test]
     fn first_allocation_storage_full_is_an_error() {
-        let error = fill_pass_with(None, |_| Err(io::ErrorKind::StorageFull.into())).unwrap_err();
+        let error = fill_pass_with(None, None, |_| Err(io::ErrorKind::StorageFull.into()))
+            .err()
+            .unwrap();
         assert_eq!(error.kind(), io::ErrorKind::StorageFull);
-    }
-
-    fn options(passes: u32) -> Options {
-        Options {
-            passes,
-            zero: false,
-            verbose: false,
-            force: true,
-            kill_holders: false,
-            allow_protected: false,
-            quiet: true,
-            verify: false,
-        }
     }
 
     #[test]
@@ -455,7 +334,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut progress = Progress::new(None, true);
         let mut calls = 0;
-        let written = fill_pass_with(Some(3 * MIB), |remaining| {
+        let done = fill_pass_with(Some(3 * MIB), None, |remaining| {
             calls += 1;
             fill_file(
                 &Directory::open(dir.path(), false).unwrap(),
@@ -467,21 +346,42 @@ mod tests {
             )
         })
         .unwrap();
-        assert_eq!((written, calls), (3 * MIB, 2));
+        assert_eq!((done.written, calls), (3 * MIB, 2));
+        assert!(!done.exceeded);
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
     #[test]
-    fn passes_leave_no_fill_file_behind() {
+    fn writing_past_the_volume_size_stops_the_pass() {
         let dir = tempfile::tempdir().unwrap();
-
-        wipe_passes(
-            &Directory::open(dir.path(), false).unwrap(),
-            &options(3),
-            Some(3 * MIB),
-        )
+        let mut progress = Progress::new(None, true);
+        let done = fill_pass_with(None, Some(2 * MIB), |remaining| {
+            fill_file(
+                &Directory::open(dir.path(), false).unwrap(),
+                Pattern::Random,
+                remaining,
+                None,
+                false,
+                &mut progress,
+            )
+        })
         .unwrap();
-
+        assert!(done.exceeded);
+        assert_eq!(done.written, 2 * MIB + 1);
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_pass_that_fits_the_volume_is_not_exceeded() {
+        let done = fill_pass_with(Some(MIB), Some(2 * MIB), |remaining| {
+            Ok(Fill {
+                file: tempfile::tempfile().unwrap(),
+                written: remaining.unwrap(),
+                file_too_large: false,
+            })
+        })
+        .unwrap();
+        assert_eq!(done.written, MIB);
+        assert!(!done.exceeded);
     }
 }

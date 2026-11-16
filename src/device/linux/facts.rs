@@ -9,6 +9,36 @@ use super::sysfs::{read_names, read_required, read_sectors, read_u64};
 use super::target::{Target, node_of};
 use super::{CHUNK, SECTOR};
 
+/// the content of `queue/rotational`, as read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Rotational {
+    /// "1": what the kernel reports, which a usb bridge or a hypervisor can make up.
+    Reported,
+    /// "0".
+    No,
+    /// any other content.
+    Other(String),
+}
+
+impl Rotational {
+    fn parse(text: &str) -> Self {
+        match text {
+            "1" => Self::Reported,
+            "0" => Self::No,
+            other => Self::Other(other.to_owned()),
+        }
+    }
+
+    /// the text as read.
+    pub(super) fn as_text(&self) -> &str {
+        match self {
+            Self::Reported => "1",
+            Self::No => "0",
+            Self::Other(text) => text,
+        }
+    }
+}
+
 /// what the kernel and the mount table say about a device and, for a whole disk, its partitions.
 /// two readings that differ mean the device changed.
 #[derive(Debug, PartialEq, Eq)]
@@ -16,8 +46,10 @@ pub(super) struct Facts {
     /// bytes. zero when there is no medium.
     pub(super) size: u64,
     pub(super) logical_block: u64,
-    /// the content of `queue/rotational`, as read: only "1" is a hard disk. an unreadable file stops the run.
-    pub(super) rotational: String,
+    /// `queue/rotational`. an unreadable file stops the run.
+    pub(super) rotational: Rotational,
+    /// why a report of "1" cannot be trusted: usb transport, removable media or a virtual disk.
+    pub(super) untrusted: Option<&'static str>,
     /// partitions of a whole disk, with their sizes in bytes.
     pub(super) partitions: Vec<(String, u64)>,
     /// (name of the device or partition, mount point).
@@ -26,12 +58,19 @@ pub(super) struct Facts {
     pub(super) swap: Vec<String>,
     /// (name of the device or partition, name of the holder, such as `dm-0`).
     pub(super) holders: Vec<(String, String)>,
-    /// true when btrfs or zfs is mounted anywhere on the system: a multi-device filesystem may use this
-    /// device, and its other members are not all in the mount table.
+    /// true when btrfs, bcachefs or zfs is mounted anywhere on the system: a multi-device filesystem may
+    /// use this device, and its other members are not all in the mount table (a bcachefs source lists
+    /// its members joined by `:`).
     pub(super) multi_device_fs: bool,
 }
 
 impl Facts {
+    /// true only when the kernel reports a rotating disk and nothing speaks against the report. this is
+    /// still a report, not a proof that the medium is a hard disk.
+    pub(super) fn reported_rotating(&self) -> bool {
+        self.rotational == Rotational::Reported && self.untrusted.is_none()
+    }
+
     /// reasons to refuse the device unless `--i-know-what-i-am-doing` is given. each one completes
     /// the sentence "<path>: <reason>, refusing to erase it".
     pub(super) fn problems(&self) -> Vec<String> {
@@ -53,14 +92,18 @@ impl Facts {
         );
         if self.multi_device_fs {
             problems.push(
-                "btrfs or zfs is mounted on this system; a multi-device filesystem may use this device and its members are not visible in the mount table"
+                "btrfs, bcachefs or zfs is mounted on this system; a multi-device filesystem may use this device and its members are not visible in the mount table"
                     .to_owned(),
             );
         }
-        if self.rotational != "1" {
+        if let (Rotational::Reported, Some(reason)) = (&self.rotational, self.untrusted) {
+            problems.push(format!(
+                "media is not known to be a hard disk ({reason}, the reported type cannot be trusted), overwriting flash is not reliable"
+            ));
+        } else if !self.reported_rotating() {
             problems.push(format!(
                 "media is not known to be a hard disk (queue/rotational is {}), overwriting flash is not reliable",
-                self.rotational
+                crate::ui::shown_str(self.rotational.as_text())
             ));
         }
         problems
@@ -72,7 +115,8 @@ pub(super) fn inspect(target: &Target) -> Result<Facts, String> {
     let disk = target.disk_dir();
     let size = read_sectors(&target.sys)?;
     let logical_block = read_u64(&disk.join("queue/logical_block_size"))?;
-    let rotational = read_required(&disk.join("queue/rotational"))?;
+    let rotational = Rotational::parse(&read_required(&disk.join("queue/rotational"))?);
+    let untrusted = crate::storage::untrusted_medium_reason(&disk);
 
     // each member is checked for mounts, swap and holders: the device itself, then for a whole disk its
     // partitions, and for a partition its disk, whose holders and mounts use the partition's blocks too.
@@ -104,7 +148,7 @@ pub(super) fn inspect(target: &Target) -> Result<Facts, String> {
     let table = read_mounts()?;
     let multi_device_fs = table
         .iter()
-        .any(|mount| matches!(mount.fstype.as_str(), "btrfs" | "zfs"));
+        .any(|mount| matches!(mount.fstype.as_str(), "btrfs" | "zfs" | "bcachefs"));
     let swaps = read_swaps()?;
     let mut mounts = Vec::new();
     let mut swap = Vec::new();
@@ -145,6 +189,7 @@ pub(super) fn inspect(target: &Target) -> Result<Facts, String> {
         size,
         logical_block,
         rotational,
+        untrusted,
         partitions,
         mounts,
         swap,
@@ -182,7 +227,8 @@ mod tests {
         Facts {
             size: 1 << 30,
             logical_block: 512,
-            rotational: "1".to_owned(),
+            rotational: Rotational::Reported,
+            untrusted: None,
             partitions: Vec::new(),
             mounts: Vec::new(),
             swap: Vec::new(),
@@ -208,28 +254,50 @@ mod tests {
     }
 
     #[test]
-    fn btrfs_or_zfs_on_the_system_is_a_refusal() {
+    fn btrfs_bcachefs_or_zfs_on_the_system_is_a_refusal() {
         let shared = Facts {
             multi_device_fs: true,
             ..facts()
         };
 
         assert_eq!(shared.problems().len(), 1);
+        assert!(shared.problems()[0].contains("bcachefs"));
     }
 
     #[test]
     fn media_that_is_not_a_hard_disk_is_a_refusal() {
         let flash = Facts {
-            rotational: "0".to_owned(),
+            rotational: Rotational::No,
             ..facts()
         };
         let unknown = Facts {
-            rotational: "unknown".to_owned(),
+            rotational: Rotational::Other("unknown".to_owned()),
             ..facts()
         };
 
         assert_eq!(flash.problems().len(), 1);
         assert_eq!(unknown.problems().len(), 1);
+        assert!(unknown.problems()[0].contains("queue/rotational is unknown"));
+    }
+
+    #[test]
+    fn a_rotational_report_on_usb_or_virtual_media_is_a_refusal_that_names_the_reason() {
+        let usb = Facts {
+            untrusted: Some("usb transport"),
+            ..facts()
+        };
+
+        assert!(!usb.reported_rotating());
+        assert_eq!(usb.problems().len(), 1);
+        assert!(usb.problems()[0].contains("usb transport, the reported type cannot be trusted"));
+    }
+
+    #[test]
+    fn only_a_trusted_report_of_one_counts_as_rotating() {
+        assert!(facts().reported_rotating());
+        assert_eq!(Rotational::parse("1"), Rotational::Reported);
+        assert_eq!(Rotational::parse("0"), Rotational::No);
+        assert_eq!(Rotational::parse("2").as_text(), "2");
     }
 
     #[test]

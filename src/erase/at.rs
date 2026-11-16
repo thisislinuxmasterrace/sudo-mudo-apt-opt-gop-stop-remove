@@ -316,6 +316,8 @@ pub(super) mod seam {
         Open,
         /// in `put_back`, before the rename back.
         PutBack,
+        /// after the last pass and the read-back, before the size check that precedes the delete.
+        Written,
     }
 
     type Hook = Box<dyn FnOnce(&CStr)>;
@@ -334,7 +336,7 @@ pub(super) mod seam {
         HOOKS.with(|hooks| hooks.borrow_mut().push((stage, name, Box::new(hook))));
     }
 
-    pub(super) fn fire(stage: Stage, name: &CStr) {
+    pub(in crate::erase) fn fire(stage: Stage, name: &CStr) {
         let hook = HOOKS.with(|hooks| {
             let mut hooks = hooks.borrow_mut();
             let index = hooks.iter().position(|(at, only, _)| {

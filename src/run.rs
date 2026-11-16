@@ -39,11 +39,6 @@ fn target_is_mount_point(_path: &Path) -> bool {
 pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCode {
     match device::is_device_run(paths) {
         Ok(true) => {
-            if cli.explain {
-                crate::ui::message!(
-                    "note: --explain gives no advice for devices yet, showing the dry run"
-                );
-            }
             return device::run(paths, cli, opts);
         }
         Ok(false) => {}
@@ -279,27 +274,16 @@ pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
             return ExitCode::from(EXIT_INVALID);
         }
     };
-    match safety::validate_wipe_dir(dir, cli.allow_protected) {
-        Ok(true) => crate::ui::message!(
+    if selected.is_protected() {
+        crate::ui::message!(
             "{NAME}: warning: {}: protected system path, filling it because --i-know-what-i-am-doing was given",
             crate::ui::shown(dir)
-        ),
-        Ok(false) => {}
-        Err(err) => {
-            crate::ui::message!("{NAME}: {err}");
-            return ExitCode::from(EXIT_INVALID);
-        }
-    }
-
-    if storage::is_network(dir) {
-        crate::ui::message!(
-            "{NAME}: {}: refusing to fill a network filesystem, its free space belongs to the server and other users",
-            crate::ui::shown(dir)
         );
-        return ExitCode::from(EXIT_INVALID);
     }
 
-    for warning in storage::warnings(&[dir.to_path_buf()]) {
+    // warnings describe the filesystem that gets filled, so a link is resolved first.
+    let filled = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    for warning in storage::warnings(&[filled]) {
         crate::ui::message!("{NAME}: warning: {warning}");
     }
 
@@ -341,14 +325,22 @@ pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
             );
             ExitCode::from(EXIT_INCOMPLETE)
         }
-        Ok(0) => {
+        Ok(outcome) if outcome.exceeded_pass.is_some() => {
             crate::ui::message!(
-                "{NAME}: {}: no free space was written, nothing was wiped (the volume is full, or there is no space for this user)",
+                "{NAME}: {}: free space may not be wiped, the temporary files are removed",
                 crate::ui::shown(dir)
             );
             ExitCode::from(EXIT_INCOMPLETE)
         }
-        Ok(written) => {
+        Ok(outcome) if outcome.written == 0 => {
+            crate::ui::message!(
+                "{NAME}: {}: no free space was written, nothing was wiped (the volume has no free blocks left)",
+                crate::ui::shown(dir)
+            );
+            ExitCode::from(EXIT_INCOMPLETE)
+        }
+        Ok(outcome) => {
+            let written = outcome.written;
             if !cli.force {
                 crate::ui::section("result", true);
             }
@@ -401,17 +393,19 @@ pub fn open_log(path: &Path, passes: u32, targets: &[PathBuf]) -> Result<log::Lo
     Ok(created)
 }
 
-/// the space a wipe can use on this volume, for the dry run and the prompt.
+/// the space a wipe can use on this volume, for the dry run and the prompt. the run is root, so
+/// the figure includes the blocks reserved for root.
 fn space_lines(dir: &Path) -> Vec<String> {
-    match storage::available_bytes(dir) {
-        Some(0) => vec![
-            "no space is available to this user: a wipe fills nothing unless run as root"
-                .to_owned(),
-        ],
-        Some(bytes) => vec![format!(
-            "space available to this user: {}",
-            preview::human_bytes(bytes)
-        )],
-        None => vec!["space available to this user: unknown".to_owned()],
+    match storage::free_bytes(dir) {
+        Some(0) => vec!["free space: none, a wipe would write nothing".to_owned()],
+        Some(bytes) => {
+            let label = if cfg!(unix) {
+                "free space (including blocks reserved for root)"
+            } else {
+                "free space"
+            };
+            vec![format!("{label}: {}", preview::human_bytes(bytes))]
+        }
+        None => vec!["free space: unknown".to_owned()],
     }
 }

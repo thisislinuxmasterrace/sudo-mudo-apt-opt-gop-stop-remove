@@ -48,10 +48,10 @@ pub(super) fn check_log_location(
         .ok_or_else(|| {
             format!("{shown}: could not tell which filesystem holds the log, choose another file")
         })?;
-    if !mount.source.starts_with('/') {
+    if !mount.source.is_absolute() {
         return Err(format!(
             "{shown}: the log is on {}, which is not a block device: choose a log on a disk or partition",
-            mount.source
+            crate::ui::shown(&mount.source)
         ));
     }
     let real = fs::canonicalize(&mount.source).map_err(|err| format!("{shown}: {err}"))?;

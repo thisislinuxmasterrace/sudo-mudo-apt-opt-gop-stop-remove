@@ -51,6 +51,35 @@ fn final_zero_pass_is_verified_and_visible_through_retained_handle() {
     assert!(contents.iter().all(|&byte| byte == 0));
 }
 
+#[cfg(unix)]
+#[test]
+fn file_that_grows_during_the_overwrite_is_kept_with_its_tail() {
+    use super::at::seam::{self, Stage};
+    use std::io::Write;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_file(dir.path(), "grow.bin", b"original data");
+    let parent = dir.path().to_path_buf();
+    // another writer appends after the last pass, through the hidden name.
+    seam::set(Stage::Written, None, move |hidden| {
+        let hidden = parent.join(std::ffi::OsStr::from_bytes(hidden.to_bytes()));
+        let mut file = fs::OpenOptions::new().append(true).open(hidden).unwrap();
+        file.write_all(b" appended").unwrap();
+    });
+
+    let err = erase_path(&path, &options(1)).unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("the file changed size during the overwrite, the file is kept"),
+        "{err}"
+    );
+    let contents = fs::read(&path).unwrap();
+    assert_eq!(contents.len(), 22);
+    assert!(contents.ends_with(b" appended"));
+}
+
 #[test]
 fn extra_zero_pass_preserves_the_requested_random_ending_before_it() {
     use super::Pattern;

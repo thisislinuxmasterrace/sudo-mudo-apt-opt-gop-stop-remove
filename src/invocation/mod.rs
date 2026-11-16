@@ -6,7 +6,7 @@ mod unix;
 mod windows;
 
 #[cfg(unix)]
-pub(crate) use unix::sudo_home;
+pub(crate) use unix::{run_as_sudo_user, sudo_home};
 
 pub(crate) fn check() -> Result<(), String> {
     #[cfg(unix)]

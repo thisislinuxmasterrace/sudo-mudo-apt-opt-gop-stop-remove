@@ -59,6 +59,7 @@ const LINUX_MAGIC: &[(u64, &str)] = &[
     (0x4D5A, "minix"),
     (0x7461_636F, "ocfs2"),
     (0xF15F, "ecryptfs"),
+    (0x2405_1905, "ubifs"),
 ];
 
 #[cfg(target_os = "linux")]
@@ -167,70 +168,27 @@ pub(super) fn remote_drive(_path: &Path) -> bool {
 /// the device the filesystem holding `path` is mounted from, read from `/proc/self/mountinfo`.
 #[cfg(target_os = "linux")]
 pub(super) fn mount_source(path: &Path) -> Option<PathBuf> {
-    mount_entry(path).map(|(_, source)| PathBuf::from(source))
+    mount_entry(path).map(|entry| entry.source)
 }
 
 /// the filesystem type of the mount that holds `path`, such as `fuse.sshfs`.
 #[cfg(target_os = "linux")]
 fn mount_fs_type(path: &Path) -> Option<String> {
-    mount_entry(path).map(|(fs_type, _)| fs_type)
-}
-
-/// the (fs type, source) of the mount that holds `path`, from `/proc/self/mountinfo`.
-#[cfg(target_os = "linux")]
-fn mount_entry(path: &Path) -> Option<(String, String)> {
-    let table = std::fs::read_to_string("/proc/self/mountinfo").ok()?;
-    let canonical = std::fs::canonicalize(path).ok()?;
-    mount_entry_in(&table, &canonical)
-}
-
-/// the (fs type, source) of the longest mount point that contains `path`; `table` is mountinfo text.
-#[cfg(target_os = "linux")]
-fn mount_entry_in(table: &str, path: &Path) -> Option<(String, String)> {
-    mount_line_in(table, path).map(|(fs_type, source, _)| (fs_type, source))
+    mount_entry(path).map(|entry| entry.fs_type)
 }
 
 /// the comma separated super options (`rw,compress=zstd:3,...`) of the mount that holds `path`.
 #[cfg(target_os = "linux")]
 pub(super) fn mount_super_options(path: &Path) -> Option<String> {
-    let table = std::fs::read_to_string("/proc/self/mountinfo").ok()?;
-    let canonical = std::fs::canonicalize(path).ok()?;
-    mount_line_in(&table, &canonical).map(|(_, _, options)| options)
+    mount_entry(path).map(|entry| entry.options)
 }
 
-/// the (fs type, source, super options) of the longest mount point that contains `path`.
+/// the mountinfo entry of the mount that holds `path`.
 #[cfg(target_os = "linux")]
-fn mount_line_in(table: &str, path: &Path) -> Option<(String, String, String)> {
-    let mut best: Option<(usize, String, String, String)> = None;
-    for line in table.lines() {
-        // fields before " - " end with the mount point; fields after it start with the fs type and source
-        let Some((head, tail)) = line.split_once(" - ") else {
-            continue;
-        };
-        let Some(escaped) = head.split(' ').nth(4) else {
-            continue;
-        };
-        let mount_point = PathBuf::from(crate::erase::unescape_mountinfo(escaped));
-        let mut fields = tail.split(' ');
-        let (Some(fs_type), Some(source)) = (fields.next(), fields.next()) else {
-            continue;
-        };
-        let options = fields.next().unwrap_or_default();
-        // a later line on the same mount point is stacked on top of an earlier one, so it wins the tie
-        if path.starts_with(&mount_point)
-            && best
-                .as_ref()
-                .is_none_or(|(len, _, _, _)| mount_point.as_os_str().len() >= *len)
-        {
-            best = Some((
-                mount_point.as_os_str().len(),
-                fs_type.to_owned(),
-                source.to_owned(),
-                options.to_owned(),
-            ));
-        }
-    }
-    best.map(|(_, fs_type, source, options)| (fs_type, source, options))
+fn mount_entry(path: &Path) -> Option<super::mountinfo::Entry> {
+    let table = super::mountinfo::read_table().ok()?;
+    let canonical = std::fs::canonicalize(path).ok()?;
+    super::mountinfo::entry_for(&table, &canonical)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
@@ -261,71 +219,6 @@ pub(super) fn volume_root(path: &Path) -> Option<Vec<u16>> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn mount_line_reports_the_super_options_and_survives_a_missing_field() {
-        let table = [
-            "36 25 0:32 / / rw,relatime shared:1 - btrfs /dev/vdb1 rw,compress=zstd:3,ssd",
-            "37 36 0:33 / /mnt rw - ext4 /dev/vdc1",
-        ]
-        .join("\n");
-        assert_eq!(
-            mount_line_in(&table, Path::new("/usr/bin")).map(|(_, _, options)| options),
-            Some("rw,compress=zstd:3,ssd".to_owned())
-        );
-        assert_eq!(
-            mount_line_in(&table, Path::new("/mnt/x")),
-            Some(("ext4".to_owned(), "/dev/vdc1".to_owned(), String::new()))
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn mount_source_is_the_longest_matching_mount_point() {
-        let table = [
-            "36 25 0:32 / / rw,relatime shared:1 - btrfs /dev/vdb1 rw",
-            r"37 36 0:33 / /home/with\040space rw - tmpfs tmpfs rw",
-            "38 36 0:34 / /home rw - ext4 /dev/vdc1 rw",
-        ]
-        .join("\n");
-        assert_eq!(
-            mount_entry_in(&table, Path::new("/usr/bin")).map(|(_, source)| source),
-            Some("/dev/vdb1".to_owned())
-        );
-        assert_eq!(
-            mount_entry_in(&table, Path::new("/home/a/file")).map(|(_, source)| source),
-            Some("/dev/vdc1".to_owned())
-        );
-        assert_eq!(
-            mount_entry_in(&table, Path::new("/home/with space/file")).map(|(_, source)| source),
-            Some("tmpfs".to_owned())
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn mount_entry_reports_the_fuse_subtype() {
-        let table =
-            "41 25 0:40 / /home/me/remote rw,nosuid - fuse.sshfs user@host:/ rw,user_id=1000";
-        assert_eq!(
-            mount_entry_in(table, Path::new("/home/me/remote/a")),
-            Some(("fuse.sshfs".to_owned(), "user@host:/".to_owned()))
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn mount_entry_prefers_the_last_mount_on_the_same_point() {
-        let table = [
-            "40 25 0:30 / /home/me/remote rw - ext4 /dev/vdd1 rw",
-            "41 25 0:40 / /home/me/remote rw,nosuid - fuse.sshfs user@host:/ rw,user_id=1000",
-        ]
-        .join("\n");
-        assert_eq!(
-            mount_entry_in(&table, Path::new("/home/me/remote/a")),
-            Some(("fuse.sshfs".to_owned(), "user@host:/".to_owned()))
-        );
-    }
-
     #[cfg(target_os = "linux")]
     #[test]
     fn magic_numbers_name_network_and_fuse_filesystems() {
@@ -338,6 +231,7 @@ mod tests {
         assert_eq!(magic_name(0x6573_5546), Some("fuse"));
         assert_eq!(magic_name(0x7366_746E), Some("ntfs"));
         assert_eq!(magic_name(0x6B41_4653), Some("afs"));
+        assert_eq!(magic_name(0x2405_1905), Some("ubifs"));
         assert_eq!(magic_name(0x1234_5678), None);
     }
 

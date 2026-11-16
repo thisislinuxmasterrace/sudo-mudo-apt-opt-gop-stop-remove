@@ -162,7 +162,7 @@ fn unsupported_reparse_points_are_refused_without_mutation() {
             assessment,
             Assessment::from_facts(
                 None,
-                "unknown",
+                crate::storage::Medium::Unknown,
                 crate::storage::Compression::Unknown,
                 crate::storage::Encryption::NotChecked,
                 false,

@@ -78,7 +78,7 @@ mod tests {
             assessment.compression(),
             crate::storage::Compression::Enabled
         );
-        assert_eq!(assessment.verdict(), "weak");
+        assert_eq!(assessment.verdict(), crate::assessment::Verdict::Weak);
     }
 
     #[test]
@@ -92,7 +92,7 @@ mod tests {
             let (_, assessment) = Assessment::capture(path).unwrap();
             assert!(facts.0.is_some());
             assert_eq!(assessment.filesystem(), facts.0.as_deref());
-            assert_eq!(assessment.medium(), "unknown");
+            assert_eq!(assessment.medium(), crate::storage::Medium::Unknown);
         }
     }
 
@@ -119,7 +119,7 @@ mod tests {
         let initial = std::fs::symlink_metadata(&link).unwrap();
         assert!(capture(&link, &initial).is_none());
         let (_, assessment) = Assessment::capture(&link).unwrap();
-        assert_eq!(assessment.verdict(), "cosmetic");
+        assert_eq!(assessment.verdict(), crate::assessment::Verdict::Cosmetic);
         assert_eq!(assessment.filesystem(), None);
         let target_meta = std::fs::symlink_metadata(&target).unwrap();
         assert!(capture(&link, &target_meta).is_none());

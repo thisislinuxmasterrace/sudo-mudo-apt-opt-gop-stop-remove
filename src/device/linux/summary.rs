@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::preview::human_bytes;
 
-use super::facts::Facts;
+use super::facts::{Facts, Rotational};
 use super::sysfs::read_text;
 use super::target::Target;
 
@@ -36,14 +36,7 @@ pub(super) fn summary(target: &Target, facts: &Facts, passes: u32) -> Vec<String
         human_bytes(facts.size),
         human_bytes(facts.logical_block)
     ));
-    if facts.rotational == "1" {
-        lines.push("media: hard disk".to_owned());
-    } else {
-        lines.push(format!(
-            "media: not known to be a hard disk (queue/rotational is {})",
-            facts.rotational
-        ));
-    }
+    lines.push(media_line(facts));
     if !target.partition {
         lines.push("partitions:".to_owned());
         if facts.partitions.is_empty() {
@@ -70,6 +63,22 @@ pub(super) fn summary(target: &Target, facts: &Facts, passes: u32) -> Vec<String
     ));
     lines.push("destructive overwrite: existing data may be lost; remapped blocks and other copies are not covered".to_owned());
     lines
+}
+
+/// what the kernel reports about the medium. a report of rotational is never worded as a hard disk.
+fn media_line(facts: &Facts) -> String {
+    match (&facts.rotational, facts.untrusted) {
+        (Rotational::Reported, None) => {
+            "media: reported rotational (queue/rotational is 1)".to_owned()
+        }
+        (Rotational::Reported, Some(reason)) => format!(
+            "media: unknown ({reason}, the reported type cannot be trusted; queue/rotational is 1)"
+        ),
+        (other, _) => format!(
+            "media: not known to be a hard disk (queue/rotational is {})",
+            crate::ui::shown_str(other.as_text())
+        ),
+    }
 }
 
 /// model and serial number of the disk. nvme controllers keep the serial in `/sys/class/nvme`.

@@ -36,6 +36,6 @@ rc=$?
 set -e
 echo "$wipe"
 [ "$rc" -ne 0 ] || fail "--wipe-free on $kind was not refused"
-grep -q "refusing to fill a network, fuse, unknown or unreadable filesystem" <<<"$wipe" || fail "--wipe-free refusal text missing"
+grep -q "refusing to fill a network filesystem" <<<"$wipe" || fail "--wipe-free refusal text missing"
 
 echo "ok: $kind mount checked"

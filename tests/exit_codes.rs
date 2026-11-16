@@ -164,43 +164,57 @@ fn windows_only_flags_are_rejected_elsewhere() {
     assert!(file.exists());
 }
 
-/// a file that cannot be unlinked (its directory is not writable) keeps its contents and name,
-/// and the run ends with exit code 4. root ignores directory permissions: the test is skipped
-/// locally in that case, and fails under CI (where the variable `CI` is set) so it cannot pass unnoticed.
-#[cfg(unix)]
+/// a file that cannot be unlinked keeps its contents and name, and the run ends with exit code 4.
+/// root ignores directory modes, so the directory is made immutable (`chattr +i`, linux
+/// filesystems with attribute support such as ext4). without that the test is skipped locally and
+/// fails under CI (where the variable `CI` is set) so it cannot pass unnoticed.
+#[cfg(target_os = "linux")]
 #[test]
 fn file_in_unwritable_directory_exits_with_four() {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
+    use std::process::{Command, Stdio};
 
-    // restores the mode on drop, so a panic still lets `TempDir` remove the directory.
-    struct RestoreMode(PathBuf);
-    impl Drop for RestoreMode {
+    fn chattr(flag: &str, path: &std::path::Path) -> bool {
+        Command::new("chattr")
+            .arg(flag)
+            .arg(path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    // clears the flag on drop, so a panic still lets `TempDir` remove the directory.
+    struct Mutable(PathBuf);
+    impl Drop for Mutable {
         fn drop(&mut self) {
-            let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+            chattr("-i", &self.0);
         }
+    }
+
+    fn skip(reason: &str) {
+        if std::env::var_os("CI").is_some() {
+            panic!("{reason}: exit 4 was not tested");
+        }
+        eprintln!("skipped: {reason}");
     }
 
     let dir = tempfile::tempdir().unwrap();
     let locked = dir.path().join("locked");
     fs::create_dir(&locked).unwrap();
     let file = write_file(&locked, "a.txt");
-    fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
-    let _restore = RestoreMode(locked.clone());
-
+    let _mutable = Mutable(locked.clone());
+    if !chattr("+i", &locked) {
+        return skip("chattr +i is not available or not supported by this filesystem");
+    }
     if fs::write(locked.join("probe"), b"").is_ok() {
-        if std::env::var_os("CI").is_some() {
-            panic!(
-                "directory permissions are not enforced here (running as root?): exit 4 was not tested"
-            );
-        }
-        eprintln!("skipped: directory permissions are not enforced (running as root?)");
-        return;
+        return skip("the immutable flag is not enforced for this process");
     }
 
     let out = run(&["-f", path_str(&file)], "");
 
     assert_exit(&out, 4);
     assert_eq!(fs::read(&file).unwrap(), b"sensitive data");
+    assert_eq!(fs::read_dir(&locked).unwrap().count(), 1);
 }

@@ -4,9 +4,10 @@
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
+use crate::assessment::Verdict;
 use crate::copies::{self, git};
 use crate::preview::EntryAssessment;
-use crate::storage::{self, Compression, Encryption, Kind};
+use crate::storage::{self, Compression, Encryption, Kind, Medium};
 
 /// the command-line targets of one run, as the erase will walk them.
 pub(crate) struct Targets<'a> {
@@ -40,6 +41,8 @@ fn storage_advice(entries: &[EntryAssessment]) -> Vec<String> {
     let mut flash = false;
     let mut unknown_medium = false;
     let mut copy_on_write = false;
+    let mut overlay = false;
+    let mut memory = false;
     let mut network = false;
     let mut fuse_or_unknown = false;
     let mut link = false;
@@ -49,7 +52,7 @@ fn storage_advice(entries: &[EntryAssessment]) -> Vec<String> {
     let mut compressed = false;
     for entry in entries {
         let assessment = &entry.assessment;
-        link |= assessment.verdict() == "cosmetic";
+        link |= assessment.verdict() == Verdict::Cosmetic;
         compressed |= assessment.compression() == Compression::Enabled;
         match assessment.encryption() {
             Encryption::DmCrypt => dm_crypt = true,
@@ -62,13 +65,22 @@ fn storage_advice(entries: &[EntryAssessment]) -> Vec<String> {
             Encryption::NotChecked | Encryption::NoneDetected => {}
         }
         match assessment.medium() {
-            "flash" => flash = true,
+            Medium::Flash => flash = true,
             // an object with no filesystem fact is special or unreadable: the medium advice would not help.
-            "unknown" if assessment.filesystem().is_some() => unknown_medium = true,
-            _ => {}
+            // memory and overlay filesystems have their own line; a block medium is irrelevant there.
+            Medium::Unknown
+                if assessment.filesystem().is_some_and(|name| {
+                    !matches!(storage::classify(name), Kind::Memory) && name != "overlay"
+                }) =>
+            {
+                unknown_medium = true;
+            }
+            Medium::Unknown | Medium::Rotational => {}
         }
         match assessment.filesystem().map(storage::classify) {
+            Some(Kind::CopyOnWrite) if assessment.filesystem() == Some("overlay") => overlay = true,
             Some(Kind::CopyOnWrite) => copy_on_write = true,
+            Some(Kind::Memory) => memory = true,
             Some(Kind::Network) => network = true,
             Some(Kind::FuseOrUnknown) => fuse_or_unknown = true,
             Some(Kind::Local) | None => {}
@@ -80,7 +92,7 @@ fn storage_advice(entries: &[EntryAssessment]) -> Vec<String> {
         lines.push("  - symbolic link: erasing it removes only the link. erase the target itself to overwrite its data.".to_owned());
     }
     if flash {
-        lines.push("  - flash storage (ssd, usb stick, sd card): the drive may keep old blocks that an overwrite never reaches. only the drive's own erase of the whole disk, or destroying the key of encryption that was on before the data was written, reaches them. the documentation explains this under \"before selling or giving away a device\".".to_owned());
+        lines.push("  - flash storage (ssd, usb stick, sd card): the drive may keep old blocks that an overwrite never reaches. only the drive's own erase of the whole disk, or destroying the key of encryption that was on before the data was written, is designed to reach them. the documentation explains this under \"before selling or giving away a device\".".to_owned());
     }
     if dm_crypt {
         lines.push("  - dm-crypt volume: what is unreadable without the key is the whole volume, not one file. for a luks volume `cryptsetup luksErase /dev/<device>` removes every key slot, which makes the volume unreadable unless a header or key backup exists, so check `<device>` first. other dm-crypt types have no such command. an overwrite of one file only reaches the encrypted blocks.".to_owned());
@@ -89,13 +101,19 @@ fn storage_advice(entries: &[EntryAssessment]) -> Vec<String> {
         lines.push("  - ecryptfs mount: the files below it are encrypted. destroying the key is what makes them unreadable. an overwrite only reaches the encrypted lower files.".to_owned());
     }
     if unknown_medium {
-        lines.push("  - storage medium unknown: check it with `lsblk -d -o NAME,ROTA`. 1 means a spinning disk, 0 means flash or a virtual disk.".to_owned());
+        lines.push("  - storage medium unknown: `lsblk -d -o NAME,ROTA,TRAN,MODEL` shows what the kernel reports. ROTA 1 is only a report: usb bridges, removable media and virtual disks often claim it, and 0 can also be a virtual disk.".to_owned());
     }
     if fscrypt {
         lines.push("  - fscrypt: the filesystem encrypts this object. removing one name does not destroy its encryption key; other files and key backups may still allow access. an overwrite remains best effort.".to_owned());
     }
     if copy_on_write {
-        lines.push("  - copy-on-write filesystem: a write goes to new blocks and the old ones may stay until they are reused. remove snapshots first (`btrfs subvolume list <mount>`, `zfs list -t snapshot`, `tmutil listlocalsnapshots /`), and consider erasing the whole device or destroying an encryption key.".to_owned());
+        lines.push("  - copy-on-write or log-structured filesystem: a write goes to new blocks and the old ones may stay until they are reused. remove snapshots first (`btrfs subvolume list <mount>`, `zfs list -t snapshot`, `tmutil listlocalsnapshots /`), and consider erasing the whole device or destroying an encryption key.".to_owned());
+    }
+    if overlay {
+        lines.push("  - overlay filesystem (for example a container root): a write to a file from a lower layer copies it up first, and the lower copy is never overwritten.".to_owned());
+    }
+    if memory {
+        lines.push("  - memory filesystem (tmpfs, ramfs): the data is in ram, and old pages may sit in swap. an overwrite does not reach swap.".to_owned());
     }
     if compressed {
         lines.push("  - transparent compression is on for this object or mount: new data may occupy smaller extents than old data, so overwriting need not reach the old blocks. on windows directories, the flag is a default for new files. random data does not prove an in-place rewrite.".to_owned());
@@ -280,7 +298,7 @@ mod tests {
     use crate::assessment::Assessment;
     use std::path::PathBuf;
 
-    fn entry(filesystem: &str, medium: &'static str) -> EntryAssessment {
+    fn entry(filesystem: &str, medium: Medium) -> EntryAssessment {
         EntryAssessment {
             path: PathBuf::from("x"),
             assessment: Assessment::from_facts(
@@ -301,7 +319,7 @@ mod tests {
             path: PathBuf::from("x"),
             assessment: Assessment::from_facts(
                 Some("btrfs".to_owned()),
-                "flash",
+                Medium::Flash,
                 Compression::Enabled,
                 Encryption::NoneDetected,
                 false,
@@ -310,7 +328,7 @@ mod tests {
             ),
         }];
         assert!(text(&entries).contains("transparent compression is on"));
-        assert!(!text(&[entry("ext4", "rotational")]).contains("transparent compression"));
+        assert!(!text(&[entry("ext4", Medium::Rotational)]).contains("transparent compression"));
     }
 
     #[test]
@@ -319,7 +337,7 @@ mod tests {
             path: PathBuf::from("x"),
             assessment: Assessment::from_facts(
                 Some("ext4".to_owned()),
-                "flash",
+                Medium::Flash,
                 Compression::Unknown,
                 Encryption::FscryptDmCrypt,
                 false,
@@ -338,7 +356,7 @@ mod tests {
             path: PathBuf::from("x"),
             assessment: Assessment::from_facts(
                 Some("ext4".to_owned()),
-                "flash",
+                Medium::Flash,
                 Compression::Unknown,
                 Encryption::DmCrypt,
                 false,
@@ -358,24 +376,28 @@ mod tests {
 
     #[test]
     fn flash_and_copy_on_write_get_their_own_advice_once() {
-        let entries = [entry("btrfs", "flash"), entry("btrfs", "flash")];
+        let entries = [entry("btrfs", Medium::Flash), entry("btrfs", Medium::Flash)];
         let text = text(&entries);
         assert_eq!(text.matches("flash storage").count(), 1);
-        assert_eq!(text.matches("copy-on-write filesystem").count(), 1);
+        assert_eq!(
+            text.matches("copy-on-write or log-structured filesystem")
+                .count(),
+            1
+        );
         assert!(text.contains("drive's own erase of the whole disk"));
         assert!(!text.contains("network filesystem"));
     }
 
     #[test]
     fn plain_local_rotational_target_gets_only_the_general_line() {
-        assert!(storage_advice(&[entry("ext4", "rotational")]).is_empty());
+        assert!(storage_advice(&[entry("ext4", Medium::Rotational)]).is_empty());
         let targets = Targets {
             paths: &[],
             recursive: false,
             excludes: &[],
         };
         assert_eq!(
-            lines(&targets, &[entry("ext4", "rotational")]),
+            lines(&targets, &[entry("ext4", Medium::Rotational)]),
             [GENERAL.to_owned()]
         );
         assert!(GENERAL.contains("nothing printed here proves"));
@@ -405,7 +427,7 @@ mod tests {
             path: PathBuf::from("dir/file"),
             assessment: Assessment::from_facts(
                 Some("ext4".to_owned()),
-                "rotational",
+                Medium::Rotational,
                 Compression::Unknown,
                 Encryption::NoneDetected,
                 false,
@@ -432,21 +454,51 @@ mod tests {
 
     #[test]
     fn network_and_unrecognized_filesystems_are_told_apart() {
-        assert!(text(&[entry("nfs", "unknown")]).contains("network filesystem"));
-        assert!(text(&[entry("fuse.sshfs", "unknown")]).contains("fuse or unrecognized"));
-        assert!(text(&[entry("nfs", "unknown")]).contains("storage medium unknown"));
+        assert!(text(&[entry("nfs", Medium::Unknown)]).contains("network filesystem"));
+        assert!(text(&[entry("fuse.sshfs", Medium::Unknown)]).contains("fuse or unrecognized"));
+        assert!(text(&[entry("nfs", Medium::Unknown)]).contains("storage medium unknown"));
+    }
+
+    #[test]
+    fn unknown_medium_advice_does_not_call_a_report_a_spinning_disk() {
+        let text = text(&[entry("ext4", Medium::Unknown)]);
+        assert!(text.contains("ROTA 1 is only a report"));
+        assert!(!text.contains("spinning disk"));
+    }
+
+    #[test]
+    fn memory_and_overlay_filesystems_get_one_short_line_each() {
+        let memory = text(&[
+            entry("tmpfs", Medium::Unknown),
+            entry("ramfs", Medium::Unknown),
+        ]);
+        assert_eq!(memory.matches("memory filesystem").count(), 1);
+        assert!(memory.contains("old pages may sit in swap"));
+        let overlay = text(&[entry("overlay", Medium::Unknown)]);
+        assert_eq!(overlay.matches("overlay filesystem").count(), 1);
+        assert!(overlay.contains("lower copy is never overwritten"));
+        assert!(!overlay.contains("log-structured filesystem:"));
+        assert!(!memory.contains("storage medium unknown"));
+        assert!(!overlay.contains("storage medium unknown"));
+        let log_structured = text(&[entry("f2fs", Medium::Flash), entry("nilfs2", Medium::Flash)]);
+        assert_eq!(
+            log_structured
+                .matches("copy-on-write or log-structured filesystem:")
+                .count(),
+            1
+        );
     }
 
     #[test]
     fn the_text_never_promises_unrecoverable_data() {
-        let text = text(&[entry("ext4", "flash")]).to_lowercase();
+        let text = text(&[entry("ext4", Medium::Flash)]).to_lowercase();
         assert!(!text.contains("securely erased"));
         assert!(!text.contains("guarantee"));
     }
 
     #[test]
     fn flash_advice_for_a_file_prints_no_whole_disk_commands() {
-        let text = text(&[entry("ext4", "flash")]);
+        let text = text(&[entry("ext4", Medium::Flash)]);
         for command in ["nvme", "hdparm", "luksErase"] {
             assert!(!text.contains(command), "{command}: {text}");
         }

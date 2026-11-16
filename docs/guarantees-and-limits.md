@@ -12,7 +12,7 @@
 | snapshots and backups | earlier versions outside the file being overwritten |
 | network or remote storage | server-side copies and snapshots |
 
-the tool warns about copy-on-write, network, fuse and unknown filesystems. flash warnings require linux and a known non-rotational device; no warning does not establish safe media. a file erase continues; [free-space wiping](wipe-free.md) refuses network, fuse and unknown filesystems.
+the tool warns about copy-on-write, network, fuse and unknown filesystems. overlay, f2fs, nilfs2 and ubifs count as copy-on-write or log-structured (on overlay the lower layer's copy is never overwritten). tmpfs and ramfs are memory: old pages may sit in swap. for a symlink the warnings describe the filesystem that holds the link. flash warnings require linux and a known non-rotational device; no warning does not establish safe media. a file erase continues; [free-space wiping](wipe-free.md) refuses memory, network, fuse and unknown filesystems.
 
 each pass is synced before the next one. syncing does not make the drive overwrite its old physical blocks. on linux, sparse-file holes are skipped; unsupported range queries fall back to a whole-file overwrite. the byte estimate uses logical file sizes.
 
@@ -32,7 +32,7 @@ file runs report an operation result and a separate assessment:
 
 facts are advisory, collected before rename or deletion. they never authorize an erase or replace identity checks:
 
-- linux detects rotational media through sysfs; other platforms leave media unknown.
+- linux reads `queue/rotational`; a 1 is only "reported rotational". on usb, removable or virtual disks the medium stays unknown, because a bridge or hypervisor can make the value up. other platforms leave media unknown.
 - filesystem names are queried where supported. failures leave facts unknown.
 - linux compression facts come from mount options, not individual files. missing options do not prove compression is off.
 - linux detects dm-crypt, ecryptfs and supported fscrypt metadata. `none_detected` does not prove plaintext; self-encrypting drives and some underlying storage are not detected. other platforms are unchecked.

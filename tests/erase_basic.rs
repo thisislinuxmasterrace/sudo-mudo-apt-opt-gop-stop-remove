@@ -132,3 +132,28 @@ fn erase_prints_the_note_once_and_dry_run_does_not() {
         1
     );
 }
+
+#[test]
+fn relative_path_sees_a_sync_folder_above_the_current_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let sub = dir.path().join("Dropbox/work/sub");
+    fs::create_dir_all(&sub).unwrap();
+    let file = write_file(&sub, "secret.txt");
+
+    let dry = run_in(Some(&sub), &["--dry-run", "--json", "secret.txt"], "");
+    assert_exit(&dry, 0);
+    let text = String::from_utf8(dry.stdout).unwrap();
+    assert!(text.contains("\"other_copies\":\"found\""), "{text}");
+    assert!(text.contains("\"kind\":\"sync_folder\""), "{text}");
+
+    let log = dir.path().join("erase.log");
+    let erased = run_in(
+        Some(&sub),
+        &["-f", "--log", path_str(&log), "secret.txt"],
+        "",
+    );
+    assert_exit(&erased, 0);
+    assert!(!file.exists());
+    let record = fs::read_to_string(log).unwrap();
+    assert!(record.contains("\"kind\":\"sync_folder\""), "{record}");
+}

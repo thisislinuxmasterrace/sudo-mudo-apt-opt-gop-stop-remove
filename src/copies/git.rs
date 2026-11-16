@@ -18,8 +18,6 @@ fn query(
             "-c",
             "core.fsmonitor=false",
         ])
-        .arg("-c")
-        .arg(format!("safe.directory={}", root.display()))
         .args(["-c", "log.showSignature=false"])
         .args(args)
         .arg("--")
@@ -37,6 +35,13 @@ fn query(
         )
         .env("GIT_NO_LAZY_FETCH", "1")
         .env("GIT_TERMINAL_PROMPT", "0");
+    // git runs as the invoking user, which is root only when root itself invoked sudo: an untrusted
+    // repository would otherwise run its configuration with root rights. as that user git applies its own ownership check (`safe.directory`), so a
+    // repository owned by someone else gives no fact. without a known user there is no fact either.
+    #[cfg(unix)]
+    if !crate::invocation::run_as_sudo_user(&mut command) {
+        return None;
+    }
     crate::advisory::output(&mut command)
 }
 

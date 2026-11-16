@@ -4,18 +4,35 @@ use std::fs::Metadata;
 use std::path::Path;
 
 use crate::copies::{self, Found};
-use crate::storage::{Compression, Encryption};
+use crate::storage::{Compression, Encryption, Medium};
 use crate::{json, storage};
 
 #[cfg(windows)]
 mod windows;
 
+/// how far an erase can be trusted for an object. an assessment is never better than weak.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Verdict {
+    /// removing a link changes the name only.
+    Cosmetic,
+    Weak,
+}
+
+impl Verdict {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Cosmetic => "cosmetic",
+            Self::Weak => "weak",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Assessment {
-    verdict: &'static str,
+    verdict: Verdict,
     reasons: Vec<&'static str>,
     filesystem: Option<String>,
-    medium: &'static str,
+    medium: Medium,
     compression: Compression,
     encryption: Encryption,
     /// `None` when the object was not looked at for other copies.
@@ -49,10 +66,10 @@ impl Assessment {
     fn with_facts(path: &Path, meta: &Metadata, facts: StorageFacts) -> Self {
         if meta.file_type().is_symlink() {
             return Self {
-                verdict: "cosmetic",
+                verdict: Verdict::Cosmetic,
                 reasons: vec!["removing the link does not overwrite its target"],
                 filesystem: None,
-                medium: "unknown",
+                medium: Medium::Unknown,
                 compression: Compression::Unknown,
                 encryption: Encryption::NotChecked,
                 copies: None,
@@ -62,7 +79,7 @@ impl Assessment {
         if crate::entry::is_unsupported_reparse(meta) || (!meta.is_file() && !meta.is_dir()) {
             return Self::from_facts(
                 None,
-                "unknown",
+                Medium::Unknown,
                 Compression::Unknown,
                 Encryption::NotChecked,
                 false,
@@ -71,11 +88,6 @@ impl Assessment {
             );
         }
         let (filesystem, medium, compression, encryption) = facts;
-        let medium = match medium {
-            Some(true) => "flash",
-            Some(false) => "rotational",
-            None => "unknown",
-        };
         let copies = Some(copies::find(path, meta));
         Self::from_facts(
             filesystem,
@@ -100,11 +112,11 @@ impl Assessment {
         self.filesystem.as_deref()
     }
 
-    pub(crate) fn medium(&self) -> &'static str {
+    pub(crate) fn medium(&self) -> Medium {
         self.medium
     }
 
-    pub(crate) fn verdict(&self) -> &'static str {
+    pub(crate) fn verdict(&self) -> Verdict {
         self.verdict
     }
 
@@ -115,7 +127,7 @@ impl Assessment {
 
     pub(crate) fn from_facts(
         filesystem: Option<String>,
-        medium: &'static str,
+        medium: Medium,
         compression: Compression,
         encryption: Encryption,
         is_dir: bool,
@@ -133,9 +145,17 @@ impl Assessment {
             None => reasons.push("filesystem is unknown"),
         }
         match medium {
-            "flash" => reasons.push("flash may retain remapped blocks"),
-            "unknown" => reasons.push("storage medium is unknown"),
-            _ => {}
+            Medium::Flash => reasons.push("flash may retain remapped blocks"),
+            // a memory or overlay filesystem has its own reason; a block medium is irrelevant there.
+            Medium::Unknown
+                if !filesystem.as_deref().is_some_and(|name| {
+                    matches!(storage::classify(name), storage::Kind::Memory) || name == "overlay"
+                }) =>
+            {
+                reasons.push("storage medium is unknown");
+            }
+            Medium::Unknown => {}
+            Medium::Rotational => {}
         }
         reasons.push(compression.reason());
         reasons.push(encryption.reason());
@@ -151,7 +171,7 @@ impl Assessment {
             None => reasons.push("other copies are not checked"),
         }
         Self {
-            verdict: "weak",
+            verdict: Verdict::Weak,
             reasons,
             filesystem,
             medium,
@@ -163,10 +183,10 @@ impl Assessment {
 
     pub(crate) fn unknown() -> Self {
         Self {
-            verdict: "weak",
+            verdict: Verdict::Weak,
             reasons: vec!["object could not be assessed; coverage is incomplete"],
             filesystem: None,
-            medium: "unknown",
+            medium: Medium::Unknown,
             compression: Compression::Unknown,
             encryption: Encryption::NotChecked,
             copies: None,
@@ -183,12 +203,12 @@ impl Assessment {
 
     #[cfg(test)]
     pub(crate) fn line(&self) -> String {
-        format!("{}: {}", self.verdict, self.reasons.join("; "))
+        format!("{}: {}", self.verdict.as_str(), self.reasons.join("; "))
     }
 
     pub(crate) fn write_fields(&self, out: &mut String) {
         out.push_str(",\"verdict\":");
-        json::push_str(out, self.verdict);
+        json::push_str(out, self.verdict.as_str());
         out.push_str(",\"reasons\":[");
         for (i, reason) in self.reasons.iter().enumerate() {
             if i > 0 {
@@ -203,7 +223,7 @@ impl Assessment {
             out.push_str("null");
         }
         out.push_str(",\"medium\":");
-        json::push_str(out, self.medium);
+        json::push_str(out, self.medium.as_str());
         out.push_str(",\"compression\":");
         json::push_str(out, self.compression.as_str());
         out.push_str(",\"snapshots\":\"unknown\",\"encryption\":");
@@ -230,12 +250,16 @@ impl Assessment {
     }
 }
 
-/// the filesystem name, the medium (`Some(true)` for flash), and the compression and encryption facts
-/// for an object.
-type StorageFacts = (Option<String>, Option<bool>, Compression, Encryption);
+/// the filesystem name, the medium, and the compression and encryption facts for an object.
+type StorageFacts = (Option<String>, Medium, Compression, Encryption);
 
 /// what is known when the object could not be opened safely.
-const NO_FACTS: StorageFacts = (None, None, Compression::Unknown, Encryption::NotChecked);
+const NO_FACTS: StorageFacts = (
+    None,
+    Medium::Unknown,
+    Compression::Unknown,
+    Encryption::NotChecked,
+);
 
 #[cfg(target_os = "linux")]
 fn storage_facts(path: &Path, meta: &Metadata) -> StorageFacts {
@@ -298,7 +322,7 @@ fn storage_facts(path: &Path, meta: &Metadata) -> StorageFacts {
         nix::sys::statfs::fstatfs(&file)
             .ok()
             .map(|stat| stat.filesystem_type_name().to_owned()),
-        None,
+        Medium::Unknown,
         if compressed {
             Compression::Enabled
         } else {

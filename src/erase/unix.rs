@@ -39,7 +39,6 @@ use super::{Options, Selected};
 ///
 /// entries matching `excludes` are kept on purpose: their directories are kept too, and the result is
 /// `Ok(true)` (something was kept because of `--exclude`), which is not a failure.
-#[cfg(unix)]
 #[cfg(test)]
 pub fn erase_path(
     path: &Path,
@@ -92,7 +91,7 @@ pub fn erase_selected(
             size,
             Outcome::Refused,
             &err.to_string(),
-            &assess_selected(real, st),
+            &assess_selected(log, real, st),
         );
         return Err(err);
     }
@@ -114,7 +113,6 @@ pub fn erase_selected(
 }
 
 /// erases one entry and writes its line to the log. `st` is its stat, taken without following links.
-#[cfg(unix)]
 fn erase_object(
     parent: &File,
     name: &CStr,
@@ -126,7 +124,7 @@ fn erase_object(
 ) -> io::Result<bool> {
     log_stopped(walk.log)?;
     let (kind, size) = stat_kind(st);
-    let assessment = assess_selected(real, st);
+    let assessment = assess_selected(walk.log, real, st);
     let rule = hard_link_rule(running_as_root(), st.st_nlink > 1, opts.allow_protected);
     let refused = kind == Kind::Other
         || (kind == Kind::File
@@ -162,7 +160,6 @@ fn erase_object(
 }
 
 /// kind of an entry from its stat, and its size: only regular files have one.
-#[cfg(unix)]
 fn stat_kind(st: &FileStat) -> (Kind, u64) {
     let kind = file_kind(st);
     if kind == SFlag::S_IFREG {
@@ -176,8 +173,13 @@ fn stat_kind(st: &FileStat) -> (Kind, u64) {
     }
 }
 
+/// the assessment only feeds the `--log` line, and costs many lookups per entry, so it is skipped
+/// when no log is open.
 #[allow(clippy::unnecessary_cast)]
-fn assess_selected(path: &Path, st: &FileStat) -> crate::assessment::Assessment {
+fn assess_selected(log: Option<&Log>, path: &Path, st: &FileStat) -> crate::assessment::Assessment {
+    if log.is_none() {
+        return crate::assessment::Assessment::unknown();
+    }
     match fs::symlink_metadata(path) {
         Ok(meta) if meta.dev() == st.st_dev as u64 && meta.ino() == st.st_ino as u64 => {
             crate::assessment::Assessment::for_path(path, &meta)
@@ -187,7 +189,6 @@ fn assess_selected(path: &Path, st: &FileStat) -> crate::assessment::Assessment 
 }
 
 /// writes a skipped line for an entry that is not erased. the entry is only stat'ed for the log.
-#[cfg(unix)]
 fn log_skipped_at(
     log: Option<&Log>,
     dir: &File,
@@ -201,7 +202,7 @@ fn log_skipped_at(
     let assessment = stat
         .as_ref()
         .map_or_else(crate::assessment::Assessment::unknown, |st| {
-            assess_selected(real, st)
+            assess_selected(log, real, st)
         });
     log_object(
         log,
@@ -216,7 +217,6 @@ fn log_skipped_at(
 
 /// erases `name` inside the open directory `parent`. `st` is its stat, taken without following links.
 /// a link is never opened: it is hidden, checked against `st` and deleted like the other entries.
-#[cfg(unix)]
 fn erase_entry(
     parent: &File,
     name: &CStr,
@@ -228,7 +228,13 @@ fn erase_entry(
 ) -> io::Result<bool> {
     let kind = file_kind(st);
     super::check_depth(walk.rel)?;
-    crate::safety::unix::check_entry(parent, st, opts.allow_protected)?;
+    if walk.rel.as_os_str().is_empty() {
+        // the command-line target: the full check, ancestors included.
+        crate::safety::unix::check_entry(parent, st, opts.allow_protected)?;
+    } else {
+        // inside the walk the identity is enough; see `check_walk_entry`.
+        crate::safety::unix::check_walk_entry(st, opts.allow_protected)?;
+    }
     if kind == SFlag::S_IFLNK {
         remove_checked(parent, name, st, shown).map(|()| false)
     } else if kind == SFlag::S_IFDIR {
@@ -255,7 +261,6 @@ fn erase_entry(
 
 /// erases the contents of a directory, then removes it. the directory is opened with an identity
 /// check, and hidden and checked again before it is removed; the removal fails on a non-empty directory.
-#[cfg(unix)]
 fn erase_dir_at(
     parent: &File,
     name: &CStr,
@@ -284,7 +289,6 @@ fn erase_dir_at(
 /// erases every entry of the open directory `dir`, whose stat is `dir_st`. a failing entry is
 /// reported and skipped, and the directory is kept. returns true when an entry was kept because of
 /// `--exclude`, here or in a subdirectory; the caller then keeps this directory too.
-#[cfg(unix)]
 fn erase_contents(
     dir: &File,
     dir_st: &FileStat,
@@ -333,7 +337,7 @@ fn erase_contents(
                         size,
                         Outcome::Skipped,
                         "mount point or other filesystem, skipped",
-                        &assess_selected(&entry_real, &st),
+                        &assess_selected(walk.log, &entry_real, &st),
                     );
                     Err(io::Error::other(
                         "is a mount point or on another filesystem, skipped",
@@ -377,7 +381,6 @@ fn erase_contents(
 }
 
 /// names in `dir` except `.` and `..`, read before anything is erased.
-#[cfg(unix)]
 pub(super) fn list_names(dir: &File) -> io::Result<Vec<CString>> {
     // fdopendir takes ownership of the descriptor, so list a duplicate.
     let mut listing = Dir::from_fd(OwnedFd::from(dir.try_clone()?))?;
@@ -394,7 +397,6 @@ pub(super) fn list_names(dir: &File) -> io::Result<Vec<CString>> {
 
 /// overwrites the file's contents, then deletes it. the name is moved away first, so a file that
 /// cannot be deleted is refused before anything is overwritten.
-#[cfg(unix)]
 fn erase_file_at(
     parent: &File,
     name: &CStr,
@@ -417,7 +419,6 @@ fn erase_file_at(
 }
 
 /// overwrites the contents of the renamed entry `hidden`, through a descriptor checked against `st`.
-#[cfg(unix)]
 fn overwrite_hidden(parent: &File, hidden: &CStr, st: &FileStat, opts: &Options) -> io::Result<()> {
     let access = if opts.verify {
         OFlag::O_RDWR
@@ -445,8 +446,16 @@ fn overwrite_hidden(parent: &File, hidden: &CStr, st: &FileStat, opts: &Options)
             format!("{err}; the contents may be partly overwritten"),
         )
     })?;
-    match &expected {
-        Some(expected) => verify::check_ranges(&mut file, expected, len, &ranges),
-        None => Ok(()),
+    if let Some(expected) = &expected {
+        verify::check_ranges(&mut file, expected, len, &ranges)?;
     }
+    #[cfg(test)]
+    super::at::seam::fire(super::at::seam::Stage::Written, hidden);
+    // another writer may have appended meanwhile: its tail was never overwritten, so the file stays.
+    if file.metadata()?.len() != len {
+        return Err(io::Error::other(
+            "the file changed size during the overwrite",
+        ));
+    }
+    Ok(())
 }

@@ -29,7 +29,7 @@ fn dangling_link_does_not_inspect_target() {
     let assessment = Assessment::for_path(&link, &std::fs::symlink_metadata(&link).unwrap());
     assert!(assessment.line().starts_with("cosmetic:"));
     assert_eq!(assessment.filesystem, None);
-    assert_eq!(assessment.medium, "unknown");
+    assert_eq!(assessment.medium, Medium::Unknown);
 }
 
 #[cfg(target_os = "linux")]
@@ -43,15 +43,15 @@ fn replaced_path_does_not_supply_facts_for_selected_metadata() {
     std::os::unix::fs::symlink("/", &file).unwrap();
     let assessment = Assessment::for_path(&file, &meta);
     assert_eq!(assessment.filesystem, None);
-    assert_eq!(assessment.medium, "unknown");
-    assert_eq!(assessment.verdict, "weak");
+    assert_eq!(assessment.medium, Medium::Unknown);
+    assert_eq!(assessment.verdict, Verdict::Weak);
 }
 
 #[test]
 fn unreadable_object_is_unknown() {
     let assessment = Assessment::unknown();
     assert!(assessment.line().contains("coverage is incomplete"));
-    assert_eq!(assessment.medium, "unknown");
+    assert_eq!(assessment.medium, Medium::Unknown);
 }
 
 #[cfg(unix)]
@@ -62,7 +62,7 @@ fn special_objects_do_not_supply_storage_facts() {
     nix::unistd::mkfifo(&fifo, nix::sys::stat::Mode::S_IRUSR).unwrap();
     let assessment = Assessment::for_path(&fifo, &std::fs::symlink_metadata(&fifo).unwrap());
     assert_eq!(assessment.filesystem, None);
-    assert_eq!(assessment.medium, "unknown");
+    assert_eq!(assessment.medium, Medium::Unknown);
     assert!(
         assessment
             .line()
@@ -77,7 +77,7 @@ fn found_copies_are_listed_and_never_raise_the_verdict() {
     std::fs::write(&file, b"data").unwrap();
     std::fs::write(dir.path().join("notes.txt~"), b"old").unwrap();
     let assessment = Assessment::for_path(&file, &std::fs::symlink_metadata(&file).unwrap());
-    assert_eq!(assessment.verdict, "weak");
+    assert_eq!(assessment.verdict, Verdict::Weak);
     assert!(assessment.line().contains("editor backup"));
     let mut fields = String::new();
     assessment.write_fields(&mut fields);
@@ -98,7 +98,7 @@ fn uncertain_facts_never_produce_effective() {
         Some("nfs"),
         Some("other"),
     ] {
-        for medium in ["unknown", "flash", "rotational"] {
+        for medium in [Medium::Unknown, Medium::Flash, Medium::Rotational] {
             for encryption in [
                 Encryption::NotChecked,
                 Encryption::NoneDetected,
@@ -114,7 +114,7 @@ fn uncertain_facts_never_produce_effective() {
                     true,
                     None,
                 );
-                assert_eq!(assessment.verdict, "weak");
+                assert_eq!(assessment.verdict, Verdict::Weak);
                 assert!(
                     assessment
                         .line()
@@ -129,7 +129,7 @@ fn uncertain_facts_never_produce_effective() {
 fn encryption_is_a_fact_and_a_reason_and_never_a_verdict() {
     let assessment = Assessment::from_facts(
         Some("ext4".to_owned()),
-        "flash",
+        Medium::Flash,
         Compression::Unknown,
         Encryption::DmCrypt,
         false,
@@ -144,10 +144,10 @@ fn encryption_is_a_fact_and_a_reason_and_never_a_verdict() {
             .line()
             .contains("destroying every copy of the key")
     );
-    assert_eq!(assessment.verdict, "weak");
+    assert_eq!(assessment.verdict, Verdict::Weak);
     let plain = Assessment::from_facts(
         None,
-        "unknown",
+        Medium::Unknown,
         Compression::Unknown,
         Encryption::NotChecked,
         false,
@@ -179,7 +179,7 @@ fn compression_is_a_fact_and_a_reason_and_never_a_verdict() {
     ] {
         let assessment = Assessment::from_facts(
             Some("btrfs".to_owned()),
-            "flash",
+            Medium::Flash,
             compression,
             Encryption::NotChecked,
             false,
@@ -193,7 +193,7 @@ fn compression_is_a_fact_and_a_reason_and_never_a_verdict() {
             "{fields}"
         );
         assert!(assessment.line().contains(reason), "{}", assessment.line());
-        assert_eq!(assessment.verdict, "weak");
+        assert_eq!(assessment.verdict, Verdict::Weak);
         assert!(assessment.line().contains("snapshots are unknown"));
     }
 }

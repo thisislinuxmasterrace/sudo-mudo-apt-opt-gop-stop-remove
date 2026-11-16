@@ -115,13 +115,13 @@ fn path_warnings(path: &Path) -> Vec<String> {
     if is_flash(path) {
         found.push(format!(
             "{}: on a flash (non-rotational) device, the device may keep old data in blocks it remapped",
-            path.display()
+            crate::ui::shown(path)
         ));
     }
     if remote_drive(path) {
         found.push(format!(
             "{}: remote drive, overwriting happens on the server, which may keep copies",
-            path.display()
+            crate::ui::shown(path)
         ));
     }
     found
@@ -131,7 +131,7 @@ fn path_warnings(path: &Path) -> Vec<String> {
 fn unreadable_warning(path: &Path) -> String {
     format!(
         "{}: could not read the filesystem type, it may be a remote one",
-        path.display()
+        crate::ui::shown(path)
     )
 }
 
@@ -148,7 +148,7 @@ fn fs_warning(path: &Path, fs_name: &str) -> Option<String> {
             "{fs_name} is a fuse or unrecognized filesystem, overwriting may happen on a remote server"
         ),
     };
-    Some(format!("{}: {message}", path.display()))
+    Some(format!("{}: {message}", crate::ui::shown(path)))
 }
 
 #[cfg(test)]

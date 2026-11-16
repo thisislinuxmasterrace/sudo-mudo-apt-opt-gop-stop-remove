@@ -55,7 +55,7 @@ pub fn confirm(
 ) -> bool {
     crate::ui::section("targets, erased permanently", true);
     for path in paths.iter().take(LISTED_PATHS) {
-        crate::ui::message!("  {}", path.display());
+        crate::ui::message!("  {}", crate::ui::shown(path));
     }
     if paths.len() > LISTED_PATHS {
         crate::ui::message!("  ... and {} more", paths.len() - LISTED_PATHS);
@@ -81,7 +81,7 @@ fn confirm_name(path: &Path, part: &preview::Summary) -> bool {
         "this is a large erase ({} objects, {}): type the name of the {kind} ({}) to continue:",
         part.objects(),
         preview::human_bytes(part.bytes),
-        name.to_string_lossy()
+        crate::ui::shown_str(&name.to_string_lossy())
     );
     prompt::read_line(&format!("{question} "))
         .as_deref()
@@ -91,7 +91,7 @@ fn confirm_name(path: &Path, part: &preview::Summary) -> bool {
 
 pub fn confirm_wipe(dir: &Path, passes: u32, space: &[String]) -> bool {
     crate::ui::section("free space", true);
-    crate::ui::message!("  {}", dir.display());
+    crate::ui::message!("  {}", crate::ui::shown(dir));
     crate::ui::section("summary", true);
     for line in space {
         crate::ui::message!("  {line}");

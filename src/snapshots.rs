@@ -25,7 +25,7 @@ pub(crate) fn explain(path: &Path) -> Option<String> {
     }.unwrap_or_else(|| "could not check: the tool is unavailable, timed out or did not identify the storage".to_owned());
     Some(format!(
         "  - snapshots: {}: {result}. other backups are not checked.",
-        path.display()
+        crate::ui::shown(path)
     ))
 }
 

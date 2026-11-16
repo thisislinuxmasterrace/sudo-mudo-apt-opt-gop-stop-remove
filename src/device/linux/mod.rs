@@ -55,7 +55,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
     let mut states = Vec::new();
     let mut refused = false;
     for target in &targets {
-        let shown = target.shown.display();
+        let shown = crate::ui::shown(&target.shown);
         let facts = match inspect(target) {
             Ok(facts) => facts,
             Err(err) => {
@@ -69,7 +69,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         }
         if cli.explain {
             crate::ui::section("device advice", true);
-            crate::ui::message!("  {}:", target.shown.display());
+            crate::ui::message!("  {}:", crate::ui::shown(&target.shown));
             for line in super::advice::lines(target.partition, facts.rotational != "1") {
                 crate::ui::message!("  - {line}");
             }
@@ -110,7 +110,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         }
         for (target, facts) in targets.iter().zip(&states) {
             crate::ui::section("dry run: would erase device", false);
-            crate::ui::stdout_line(format_args!("  {}", target.shown.display()));
+            crate::ui::stdout_line(format_args!("  {}", crate::ui::shown(&target.shown)));
             crate::ui::section("summary", false);
             for line in summary(target, facts, cli.passes) {
                 crate::ui::stdout_line(format_args!("  {line}"));
@@ -168,7 +168,10 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
                 if let Err(err) = check_log_location(path, &targets, &states) {
                     drop(log);
                     if fs::remove_file(path).is_err() {
-                        crate::ui::message!("{NAME}: {}: could not remove the log", path.display());
+                        crate::ui::message!(
+                            "{NAME}: {}: could not remove the log",
+                            crate::ui::shown(path)
+                        );
                     }
                     crate::ui::message!("{NAME}: {err}");
                     return ExitCode::from(EXIT_INVALID);
@@ -186,7 +189,7 @@ pub(super) fn erase(paths: &[PathBuf], cli: &Cli, opts: &Options) -> ExitCode {
         .zip(files.iter_mut())
         .enumerate()
     {
-        let shown = target.shown.display();
+        let shown = crate::ui::shown(&target.shown);
         let rest = if index == 0 {
             "no device was written"
         } else {

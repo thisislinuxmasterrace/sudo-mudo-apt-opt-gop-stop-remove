@@ -174,11 +174,11 @@ fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
             Err(err) => {
                 if err.kind() == io::ErrorKind::Interrupted {
                     if !entry_path.is_dir() {
-                        crate::ui::failure!("{}: {err}", entry_path.display());
+                        crate::ui::failure!("{}: {err}", crate::ui::shown(&entry_path));
                     }
                     return Err(err);
                 }
-                crate::ui::failure!("{}: {err}", entry_path.display());
+                crate::ui::failure!("{}: {err}", crate::ui::shown(&entry_path));
                 failed += 1;
             }
         }
@@ -186,13 +186,13 @@ fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
     if failed > 0 {
         return Err(io::Error::other(format!(
             "{failed} entries could not be erased, {} was kept",
-            path.display()
+            crate::ui::shown(path)
         )));
     }
     if excluded > 0 {
         crate::ui::message!(
             "kept {}: {} excluded by --exclude",
-            path.display(),
+            crate::ui::shown(path),
             crate::ui::count(excluded as u64, "entry", "entries")
         );
     }
@@ -201,7 +201,7 @@ fn erase_dir(path: &Path, walk: Walk<'_>, opts: &Options) -> io::Result<bool> {
     }
 
     if opts.verbose {
-        crate::ui::message!("  removing directory {}", path.display());
+        crate::ui::message!("  removing directory {}", crate::ui::shown(path));
     }
     if !super::streams::names(path)?.is_empty() {
         return Err(io::Error::other(
@@ -260,7 +260,7 @@ fn erase_locked_with(
     for holder in holders {
         crate::ui::message!(
             "{}: locked by {} (pid {})",
-            path.display(),
+            crate::ui::shown(path),
             holder.name,
             holder.pid
         );
@@ -301,7 +301,7 @@ fn erase_locked_with(
                 for holder in remaining.as_deref().unwrap_or_default() {
                     crate::ui::message!(
                         "{}: still locked by {} (pid {})",
-                        path.display(),
+                        crate::ui::shown(path),
                         holder.name,
                         holder.pid
                     );
@@ -343,7 +343,10 @@ fn overwrite_open_file(path: &Path, file: &mut File, opts: &Options) -> io::Resu
         overwrite_in_place(stream, size, opts).map_err(|err| {
             io::Error::new(
                 err.kind(),
-                format!("data stream {}: {err}", name.to_string_lossy()),
+                format!(
+                    "data stream {}: {err}",
+                    crate::ui::shown_str(&name.to_string_lossy())
+                ),
             )
         })?;
     }
@@ -476,7 +479,7 @@ fn unlink_with_random_name(path: &Path, is_dir: bool) -> io::Result<()> {
                 Ok(()) => Err(remove_err),
                 Err(_) => Err(io::Error::other(format!(
                     "{remove_err}; the entry is left as {}",
-                    hidden.display()
+                    crate::ui::shown(&hidden)
                 ))),
             }
         }

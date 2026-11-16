@@ -9,7 +9,7 @@ pub fn list_label(source: &Path) -> String {
     if source.as_os_str() == "-" {
         "stdin".to_owned()
     } else {
-        source.display().to_string()
+        crate::ui::shown(source)
     }
 }
 

@@ -90,7 +90,7 @@ fn real_path(dir: &File, dir_st: &FileStat, parent: &Path) -> io::Result<PathBuf
     if now.st_dev != dir_st.st_dev || now.st_ino != dir_st.st_ino {
         return Err(io::Error::other(format!(
             "{} is not the directory that was opened",
-            real.display()
+            crate::ui::shown(&real)
         )));
     }
     Ok(real)

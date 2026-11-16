@@ -150,7 +150,7 @@ pub(super) fn open_named(path: &Path, base: &File) -> io::Result<(Vec<OsString>,
                     err.kind(),
                     format!(
                         "could not open data stream {}: {err}; the file is kept",
-                        name.to_string_lossy()
+                        crate::ui::shown_str(&name.to_string_lossy())
                     ),
                 )
             })?;

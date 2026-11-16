@@ -139,7 +139,7 @@ fn copy_advice(targets: &Targets<'_>, entries: &[EntryAssessment]) -> Vec<String
     for path in backups.iter().take(LISTED_BACKUPS) {
         lines.push(format!(
             "  - editor backup: {} may hold older content. erase it too.",
-            path.display()
+            crate::ui::shown(path)
         ));
     }
     if backups.len() > LISTED_BACKUPS {
@@ -152,13 +152,13 @@ fn copy_advice(targets: &Targets<'_>, entries: &[EntryAssessment]) -> Vec<String
     for path in sync {
         lines.push(format!(
             "  - sync folder: {}: the sync service and other devices keep copies and old versions. delete the files in the service too, including its trash and version history.",
-            path.display()
+            crate::ui::shown(&path)
         ));
     }
     for path in trash {
         lines.push(format!(
             "  - trash folder: {}: other trash folders (other drives, other users) may hold more copies.",
-            path.display()
+            crate::ui::shown(&path)
         ));
     }
     lines
@@ -194,7 +194,7 @@ fn git_advice(targets: &Targets<'_>, mut roots: BTreeSet<PathBuf>) -> Vec<String
             };
             lines.push(format!(
                 "  - git: the repository at {} is erased with its history (`.git`){except}. clones and remotes keep their own copies.",
-                shown(root).display()
+                crate::ui::shown(&shown(root))
             ));
             continue;
         }
@@ -206,7 +206,7 @@ fn git_advice(targets: &Targets<'_>, mut roots: BTreeSet<PathBuf>) -> Vec<String
         if !described {
             lines.push(format!(
                 "  - git: the history of {} may keep earlier versions of files erased here; this erase does not touch it. {REWRITE_HISTORY}",
-                shown(root).display()
+                crate::ui::shown(&shown(root))
             ));
         }
     }
@@ -215,7 +215,7 @@ fn git_advice(targets: &Targets<'_>, mut roots: BTreeSet<PathBuf>) -> Vec<String
 
 fn target_in_repository(path: &Path, detail: &git::Detail) -> String {
     let root = shown(&detail.root);
-    let (path, root) = (path.display(), root.display());
+    let (path, root) = (crate::ui::shown(path), crate::ui::shown(&root));
     match (detail.tracked, detail.in_history) {
         (_, Some(true)) => format!(
             "  - git: the history of {root} holds earlier versions of {path}; this erase does not touch it. {REWRITE_HISTORY}"

@@ -26,35 +26,37 @@ impl Target {
             .ok_or_else(|| {
                 format!(
                     "{}: the path is not valid utf-8, it cannot be typed to confirm",
-                    shown.display()
+                    crate::ui::shown(shown)
                 )
             })?
             .to_owned();
-        let path = fs::canonicalize(shown).map_err(|err| format!("{}: {err}", shown.display()))?;
-        let meta = fs::metadata(&path).map_err(|err| format!("{}: {err}", shown.display()))?;
+        let path =
+            fs::canonicalize(shown).map_err(|err| format!("{}: {err}", crate::ui::shown(shown)))?;
+        let meta =
+            fs::metadata(&path).map_err(|err| format!("{}: {err}", crate::ui::shown(shown)))?;
         if !meta.file_type().is_block_device() {
-            return Err(format!("{}: not a block device", shown.display()));
+            return Err(format!("{}: not a block device", crate::ui::shown(shown)));
         }
         // the sysfs entry comes from the device number of the node, not from its file name: a node
         // can carry any name.
         let sys = sys_entry(Path::new("/sys"), meta.rdev())
-            .map_err(|err| format!("{}: {err}", shown.display()))?;
+            .map_err(|err| format!("{}: {err}", crate::ui::shown(shown)))?;
         let name = sys
             .file_name()
             .and_then(|name| name.to_str())
-            .ok_or_else(|| format!("{}: unexpected sysfs entry", shown.display()))?
+            .ok_or_else(|| format!("{}: unexpected sysfs entry", crate::ui::shown(shown)))?
             .to_owned();
         if sys.components().any(|part| part.as_os_str() == "virtual") {
             return Err(format!(
                 "{}: virtual device (device-mapper, md, loop) is not supported yet, erase the disk or partition under it",
-                shown.display()
+                crate::ui::shown(shown)
             ));
         }
         let partition = sys.join("partition").try_exists().map_err(|err| {
             format!(
                 "{}: could not read {}: {err}",
-                shown.display(),
-                sys.display()
+                crate::ui::shown(shown),
+                crate::ui::shown(&sys)
             )
         })?;
         Ok(Self {
@@ -94,14 +96,14 @@ pub(super) fn overlap_error(targets: &[Target]) -> Option<String> {
             if target.rdev == other.rdev {
                 return Some(format!(
                     "{}: the same device is listed more than once",
-                    target.shown.display()
+                    crate::ui::shown(&target.shown)
                 ));
             }
             if target.partition != other.partition && target.disk_name() == other.disk_name() {
                 return Some(format!(
                     "{}: the disk or partition overlaps {}",
-                    target.shown.display(),
-                    other.shown.display()
+                    crate::ui::shown(&target.shown),
+                    crate::ui::shown(&other.shown)
                 ));
             }
         }
@@ -120,7 +122,7 @@ pub(super) fn sys_entry(sys_root: &Path, rdev: u64) -> Result<PathBuf, String> {
     if dev != number {
         return Err(format!(
             "the sysfs entry {} is device {dev}, not {number}",
-            sys.display()
+            crate::ui::shown(&sys)
         ));
     }
     Ok(sys)

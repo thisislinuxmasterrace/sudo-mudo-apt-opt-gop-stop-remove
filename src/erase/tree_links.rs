@@ -77,7 +77,7 @@ fn collect(
 ) -> io::Result<()> {
     super::interrupt::check_interrupted()?;
     super::check_depth(rel)
-        .map_err(|err| io::Error::other(format!("{}: {err}", real.display())))?;
+        .map_err(|err| io::Error::other(format!("{}: {err}", crate::ui::shown(real))))?;
     if file_kind(st) == SFlag::S_IFREG {
         if st.st_nlink > 1 {
             *counts.entry(identity(st)).or_default() += 1;
@@ -92,7 +92,7 @@ fn collect(
         .map_err(|err| {
             io::Error::new(
                 err.kind(),
-                format!("{}: hard-link inventory: {err}", real.display()),
+                format!("{}: hard-link inventory: {err}", crate::ui::shown(real)),
             )
         })?;
         for name in super::unix::list_names(&dir)? {

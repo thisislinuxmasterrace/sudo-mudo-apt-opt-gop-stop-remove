@@ -147,3 +147,16 @@ fn json_and_log_have_no_headings_or_ansi() {
     assert!(text.starts_with('{'));
     assert!(!text.contains('\x1b'));
 }
+
+#[cfg(unix)]
+#[test]
+fn control_characters_in_names_are_escaped_in_human_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "a\x1b[2Kb\nfake line");
+    let out = run(&["--dry-run", path_str(&file)], "");
+    assert_exit(&out, 0);
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains(r"a\u{1b}[2Kb\nfake line"));
+    assert!(!stdout.contains('\x1b'));
+    assert!(!stdout.contains("\nfake line"));
+}

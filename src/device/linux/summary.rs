@@ -13,12 +13,12 @@ pub(super) fn summary(target: &Target, facts: &Facts, passes: u32) -> Vec<String
     let (model, serial) = identity(target);
     let mut lines = Vec::new();
     if target.shown == target.path {
-        lines.push(format!("path: {}", target.shown.display()));
+        lines.push(format!("path: {}", crate::ui::shown(&target.shown)));
     } else {
         lines.push(format!(
             "path: {} (resolved to {})",
-            target.shown.display(),
-            target.path.display()
+            crate::ui::shown(&target.shown),
+            crate::ui::shown(&target.path)
         ));
     }
     if target.partition {
@@ -26,7 +26,11 @@ pub(super) fn summary(target: &Target, facts: &Facts, passes: u32) -> Vec<String
     } else {
         lines.push("whole disk".to_owned());
     }
-    lines.push(format!("model: {model}, serial: {serial}"));
+    lines.push(format!(
+        "model: {}, serial: {}",
+        crate::ui::shown_str(&model),
+        crate::ui::shown_str(&serial)
+    ));
     lines.push(format!(
         "size: {}, logical block: {}",
         human_bytes(facts.size),
@@ -50,7 +54,7 @@ pub(super) fn summary(target: &Target, facts: &Facts, passes: u32) -> Vec<String
                 .mounts
                 .iter()
                 .filter(|(mounted, _)| mounted == name)
-                .map(|(_, point)| point.display().to_string())
+                .map(|(_, point)| crate::ui::shown(point))
                 .collect();
             let state = if points.is_empty() {
                 "not mounted".to_owned()

@@ -29,7 +29,7 @@ pub(super) fn open_for_write(target: &Target, allow_busy: bool) -> Result<File, 
         .custom_flags(flags)
         .open(&target.path)
         .map_err(|err| open_error(&target.shown, &err))?;
-    let shown = target.shown.display();
+    let shown = crate::ui::shown(&target.shown);
     let meta = file.metadata().map_err(|err| format!("{shown}: {err}"))?;
     if !meta.file_type().is_block_device() || meta.rdev() != target.rdev {
         return Err(format!("{shown}: the device changed while it was opened"));
@@ -40,7 +40,7 @@ pub(super) fn open_for_write(target: &Target, allow_busy: bool) -> Result<File, 
 /// the message for a device that could not be opened. EBUSY is the kernel's refusal of an exclusive
 /// open, so it reads like the other refusals.
 fn open_error(shown: &Path, err: &io::Error) -> String {
-    let shown = shown.display();
+    let shown = crate::ui::shown(shown);
     if err.raw_os_error() == Some(libc::EBUSY) {
         return format!(
             "{shown}: the device is busy (mounted or claimed by the kernel or another program), refusing to erase it (--i-know-what-i-am-doing allows it)"
@@ -62,7 +62,7 @@ pub(super) fn unchanged(
     expected: &Facts,
     file: &mut File,
 ) -> Result<bool, String> {
-    let shown = target.shown.display();
+    let shown = crate::ui::shown(&target.shown);
     let now = inspect(target).map_err(|err| format!("{shown}: {err}"))?;
     let opened = file
         .metadata()

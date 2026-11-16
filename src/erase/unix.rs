@@ -276,7 +276,7 @@ fn erase_dir_at(
         return Ok(true);
     }
     if opts.verbose {
-        crate::ui::message!("  removing directory {}", shown.display());
+        crate::ui::message!("  removing directory {}", crate::ui::shown(shown));
     }
     remove_checked(parent, name, st, shown).map(|()| false)
 }
@@ -351,11 +351,11 @@ fn erase_contents(
                 // it just pass the error up.
                 if err.kind() == io::ErrorKind::Interrupted {
                     if !is_directory_at(dir, name) {
-                        crate::ui::failure!("{}: {err}", entry_shown.display());
+                        crate::ui::failure!("{}: {err}", crate::ui::shown(&entry_shown));
                     }
                     return Err(err);
                 }
-                crate::ui::failure!("{}: {err}", entry_shown.display());
+                crate::ui::failure!("{}: {err}", crate::ui::shown(&entry_shown));
                 failed += 1;
             }
         }
@@ -363,13 +363,13 @@ fn erase_contents(
     if failed > 0 {
         return Err(io::Error::other(format!(
             "{failed} entries could not be erased, {} was kept",
-            shown.display()
+            crate::ui::shown(shown)
         )));
     }
     if excluded > 0 {
         crate::ui::message!(
             "kept {}: {} excluded by --exclude",
-            shown.display(),
+            crate::ui::shown(shown),
             crate::ui::count(excluded as u64, "entry", "entries")
         );
     }

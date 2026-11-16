@@ -52,7 +52,7 @@ fn names_device(path: &Path) -> Result<bool, String> {
             {
                 return Err(format!(
                     "{}: a link under /dev/disk/ must be named without '..' or '.'",
-                    path.display()
+                    crate::ui::shown(path)
                 ));
             }
             return Ok(true);
@@ -60,7 +60,7 @@ fn names_device(path: &Path) -> Result<bool, String> {
         if target.file_type().is_block_device() || target.file_type().is_char_device() {
             return Err(format!(
                 "{}: a symbolic link to a device is not followed, name the device path itself (for example /dev/sdb)",
-                path.display()
+                crate::ui::shown(path)
             ));
         }
         return Ok(false);
@@ -99,7 +99,7 @@ fn erase_devices(paths: &[PathBuf], _cli: &Cli, _opts: &Options) -> ExitCode {
     for path in paths {
         crate::ui::message!(
             "{NAME}: {}: erasing devices is supported on linux only for now",
-            path.display()
+            crate::ui::shown(path)
         );
     }
     ExitCode::from(EXIT_INVALID)

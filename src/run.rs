@@ -20,12 +20,12 @@ fn target_is_mount_point(path: &Path) -> bool {
         Ok(true) => {
             crate::ui::message!(
                 "{NAME}: {}: is a mount point or on another filesystem, refusing to erase it",
-                path.display()
+                crate::ui::shown(path)
             );
             true
         }
         Err(err) => {
-            crate::ui::message!("{NAME}: {}: {err}", path.display());
+            crate::ui::message!("{NAME}: {}: {err}", crate::ui::shown(path));
             true
         }
     }
@@ -61,7 +61,7 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
                 if protected {
                     crate::ui::message!(
                         "{NAME}: warning: {}: protected system path, erasing it because --i-know-what-i-am-doing was given",
-                        path.display()
+                        crate::ui::shown(path)
                     );
                 }
                 if let Err(err) = erase::validate_hard_link(path, cli.allow_protected) {
@@ -140,7 +140,7 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
         }
         crate::ui::section("dry run: would erase", false);
         for path in paths {
-            crate::ui::stdout_line(format_args!("  {}", path.display()));
+            crate::ui::stdout_line(format_args!("  {}", crate::ui::shown(path)));
         }
         crate::ui::section("summary", false);
         for line in &summary {
@@ -218,14 +218,14 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
             }
             crate::ui::message!(
                 "interrupted: {}: not erased, the remaining paths were skipped",
-                path.display()
+                crate::ui::shown(path)
             );
             return ExitCode::from(EXIT_INCOMPLETE);
         }
         if cli.verbose {
             crate::ui::message!(
                 "erasing {} ({})",
-                path.display(),
+                crate::ui::shown(path),
                 crate::ui::count(cli.passes.into(), "pass", "passes")
             );
         }
@@ -249,14 +249,14 @@ pub fn run_erase(paths: &[PathBuf], cli: &Cli, opts: &erase::Options) -> ExitCod
                 if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir()) {
                     crate::ui::message!(
                         "interrupted: {}: an entry may be partly overwritten, the rest was kept",
-                        path.display()
+                        crate::ui::shown(path)
                     );
                 } else {
-                    crate::ui::message!("interrupted: {}: {err}", path.display());
+                    crate::ui::message!("interrupted: {}: {err}", crate::ui::shown(path));
                 }
                 return ExitCode::from(EXIT_INCOMPLETE);
             }
-            crate::ui::message!("{NAME}: {}: {err}", path.display());
+            crate::ui::message!("{NAME}: {}: {err}", crate::ui::shown(path));
             failed = true;
         }
     }
@@ -275,14 +275,14 @@ pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
     let selected = match wipe::Directory::open(dir, cli.allow_protected) {
         Ok(selected) => selected,
         Err(err) => {
-            crate::ui::message!("{NAME}: {}: {err}", dir.display());
+            crate::ui::message!("{NAME}: {}: {err}", crate::ui::shown(dir));
             return ExitCode::from(EXIT_INVALID);
         }
     };
     match safety::validate_wipe_dir(dir, cli.allow_protected) {
         Ok(true) => crate::ui::message!(
             "{NAME}: warning: {}: protected system path, filling it because --i-know-what-i-am-doing was given",
-            dir.display()
+            crate::ui::shown(dir)
         ),
         Ok(false) => {}
         Err(err) => {
@@ -294,7 +294,7 @@ pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
     if storage::is_network(dir) {
         crate::ui::message!(
             "{NAME}: {}: refusing to fill a network filesystem, its free space belongs to the server and other users",
-            dir.display()
+            crate::ui::shown(dir)
         );
         return ExitCode::from(EXIT_INVALID);
     }
@@ -307,7 +307,7 @@ pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
 
     if cli.dry_run {
         crate::ui::section("dry run: would fill the free space of", false);
-        crate::ui::stdout_line(format_args!("  {}", dir.display()));
+        crate::ui::stdout_line(format_args!("  {}", crate::ui::shown(dir)));
         crate::ui::section("summary", false);
         for line in &space {
             crate::ui::stdout_line(format_args!("  {line}"));
@@ -337,14 +337,14 @@ pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
         Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {
             crate::ui::message!(
                 "interrupted: {}: free space was partly wiped, the temporary files are removed",
-                dir.display()
+                crate::ui::shown(dir)
             );
             ExitCode::from(EXIT_INCOMPLETE)
         }
         Ok(0) => {
             crate::ui::message!(
                 "{NAME}: {}: no free space was written, nothing was wiped (the volume is full, or there is no space for this user)",
-                dir.display()
+                crate::ui::shown(dir)
             );
             ExitCode::from(EXIT_INCOMPLETE)
         }
@@ -354,13 +354,13 @@ pub fn run_wipe_free(dir: &Path, cli: &Cli, opts: &erase::Options) -> ExitCode {
             }
             crate::ui::message!(
                 "free space of {} erased ({} written)",
-                dir.display(),
+                crate::ui::shown(dir),
                 preview::human_bytes(written)
             );
             ExitCode::SUCCESS
         }
         Err(err) => {
-            crate::ui::message!("{NAME}: {}: {err}", dir.display());
+            crate::ui::message!("{NAME}: {}: {err}", crate::ui::shown(dir));
             ExitCode::from(EXIT_INCOMPLETE)
         }
     }
@@ -383,14 +383,17 @@ pub fn open_log(path: &Path, passes: u32, targets: &[PathBuf]) -> Result<log::Lo
     let created = log::Log::create(path, passes).map_err(|err| {
         crate::ui::message!(
             "{NAME}: {}: could not create the log: {err}",
-            path.display()
+            crate::ui::shown(path)
         );
         ExitCode::from(EXIT_INVALID)
     })?;
     if let Err(err) = log::check_location(path, targets) {
         drop(created);
         if std::fs::remove_file(path).is_err() {
-            crate::ui::message!("{NAME}: {}: could not remove the log", path.display());
+            crate::ui::message!(
+                "{NAME}: {}: could not remove the log",
+                crate::ui::shown(path)
+            );
         }
         crate::ui::message!("{NAME}: {err}");
         return Err(ExitCode::from(EXIT_INVALID));

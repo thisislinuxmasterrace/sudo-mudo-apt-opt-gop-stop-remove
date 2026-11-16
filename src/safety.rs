@@ -17,30 +17,31 @@ pub fn validate_target(
     recursive: bool,
     allow_protected: bool,
 ) -> Result<bool, String> {
-    let meta = fs::symlink_metadata(path).map_err(|err| format!("{}: {err}", path.display()))?;
+    let meta =
+        fs::symlink_metadata(path).map_err(|err| format!("{}: {err}", crate::ui::shown(path)))?;
     let file_type = meta.file_type();
 
     if path.file_name().is_none() {
         return Err(format!(
             "{}: refusing to erase '.', '..' or a filesystem root",
-            path.display()
+            crate::ui::shown(path)
         ));
     }
     if file_type.is_dir() && !recursive {
         return Err(format!(
             "{}: is a directory (use -r to erase directories)",
-            path.display()
+            crate::ui::shown(path)
         ));
     }
     if !file_type.is_dir() && !file_type.is_file() && !file_type.is_symlink() {
         return Err(format!(
             "{}: not a regular file, directory or symbolic link",
-            path.display()
+            crate::ui::shown(path)
         ));
     }
 
     let location = location_of(path, file_type.is_symlink())
-        .map_err(|err| format!("{}: {err}", path.display()))?;
+        .map_err(|err| format!("{}: {err}", crate::ui::shown(path)))?;
     if !is_protected(&location) {
         return Ok(false);
     }
@@ -49,7 +50,7 @@ pub fn validate_target(
     }
     Err(format!(
         "{}: refusing to erase a protected system path (--i-know-what-i-am-doing allows it)",
-        path.display()
+        crate::ui::shown(path)
     ))
 }
 
@@ -60,15 +61,16 @@ pub fn validate_target(
 /// a symlink to a directory is accepted: only the filesystem behind it is used, nothing is removed.
 pub fn validate_wipe_dir(path: &Path, allow_protected: bool) -> Result<bool, String> {
     // follows a symlink on purpose: the filesystem behind the link is the one that gets filled.
-    let meta = fs::metadata(path).map_err(|err| format!("{}: {err}", path.display()))?;
+    let meta = fs::metadata(path).map_err(|err| format!("{}: {err}", crate::ui::shown(path)))?;
     if !meta.is_dir() {
-        return Err(format!("{}: not a directory", path.display()));
+        return Err(format!("{}: not a directory", crate::ui::shown(path)));
     }
-    let location = fs::canonicalize(path).map_err(|err| format!("{}: {err}", path.display()))?;
+    let location =
+        fs::canonicalize(path).map_err(|err| format!("{}: {err}", crate::ui::shown(path)))?;
     if location.parent().is_none() {
         return Err(format!(
             "{}: refusing to fill a filesystem root",
-            path.display()
+            crate::ui::shown(path)
         ));
     }
     if !is_system_protected(&location) {
@@ -79,7 +81,7 @@ pub fn validate_wipe_dir(path: &Path, allow_protected: bool) -> Result<bool, Str
     }
     Err(format!(
         "{}: refusing to fill a protected system path (--i-know-what-i-am-doing allows it)",
-        path.display()
+        crate::ui::shown(path)
     ))
 }
 

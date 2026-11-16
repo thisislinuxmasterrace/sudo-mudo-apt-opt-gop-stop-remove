@@ -2,7 +2,7 @@
 
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 // a heading is separated from earlier output by a blank line, but the first line of a stream is not blank.
@@ -12,6 +12,24 @@ static STDERR_USED: AtomicBool = AtomicBool::new(false);
 fn mark_used(stderr: bool) -> bool {
     let used = if stderr { &STDERR_USED } else { &STDOUT_USED };
     used.swap(true, Ordering::Relaxed)
+}
+
+/// text from the filesystem or a device is untrusted: raw control characters could hide or forge lines.
+/// escapes control characters and bidi overrides; backslashes and other characters stay as they are.
+pub(crate) fn shown_str(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_control() || matches!(ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}') {
+            out.extend(ch.escape_default());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+pub(crate) fn shown(path: &Path) -> String {
+    shown_str(&path.to_string_lossy())
 }
 
 macro_rules! message {
@@ -244,7 +262,7 @@ pub(crate) fn result(
         )
     } else if kept == 0 {
         let what = match targets {
-            [only] => only.display().to_string(),
+            [only] => shown(only),
             _ => count(total, "target", "targets"),
         };
         (format!("{action} {what}"), Tone::Success)
@@ -264,6 +282,23 @@ pub(crate) fn result(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shown_escapes_control_and_bidi_characters() {
+        assert_eq!(shown_str("a\nb\rc\td"), "a\\nb\\rc\\td");
+        assert_eq!(shown_str("\x1b[2K\x7f\u{85}"), "\\u{1b}[2K\\u{7f}\\u{85}");
+        assert_eq!(shown_str("\u{202e}x\u{2066}"), "\\u{202e}x\\u{2066}");
+        assert_eq!(shown(Path::new("dir\nfile")), "dir\\nfile");
+    }
+
+    #[test]
+    fn shown_keeps_ordinary_text() {
+        assert_eq!(shown_str(r"C:\dir\file"), r"C:\dir\file");
+        assert_eq!(
+            shown_str("naïve 👨\u{200d}👩 файл"),
+            "naïve 👨\u{200d}👩 файл"
+        );
+    }
 
     #[test]
     fn colors_require_a_terminal_and_respect_opt_outs() {

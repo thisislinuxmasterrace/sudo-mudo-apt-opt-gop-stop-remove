@@ -239,7 +239,7 @@ fn create_temp(dir: &Directory, name: &str) -> io::Result<File> {
     unlinkat(&dir.file, name, UnlinkatFlags::NoRemoveDir).map_err(|err| {
         io::Error::other(format!(
             "{err}; leftover file {}",
-            dir.path.join(name).display()
+            crate::ui::shown(&dir.path.join(name))
         ))
     })?;
     Ok(file)

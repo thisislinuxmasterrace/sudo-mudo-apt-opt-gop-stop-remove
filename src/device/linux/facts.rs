@@ -37,9 +37,9 @@ impl Facts {
     pub(super) fn problems(&self) -> Vec<String> {
         let mut problems = Vec::new();
         problems.extend(
-            self.mounts
-                .iter()
-                .map(|(name, point)| format!("/dev/{name} is mounted at {}", point.display())),
+            self.mounts.iter().map(|(name, point)| {
+                format!("/dev/{name} is mounted at {}", crate::ui::shown(point))
+            }),
         );
         problems.extend(
             self.swap
@@ -82,14 +82,15 @@ pub(super) fn inspect(target: &Target) -> Result<Facts, String> {
         members.push((target.disk_name(), target.disk_dir()));
     } else {
         let entries = fs::read_dir(&disk)
-            .map_err(|err| format!("could not read {}: {err}", disk.display()))?;
+            .map_err(|err| format!("could not read {}: {err}", crate::ui::shown(&disk)))?;
         for entry in entries {
-            let entry = entry.map_err(|err| format!("could not read {}: {err}", disk.display()))?;
+            let entry = entry
+                .map_err(|err| format!("could not read {}: {err}", crate::ui::shown(&disk)))?;
             let sys = entry.path();
             let is_partition = sys
                 .join("partition")
                 .try_exists()
-                .map_err(|err| format!("could not read {}: {err}", sys.display()))?;
+                .map_err(|err| format!("could not read {}: {err}", crate::ui::shown(&sys)))?;
             if !is_partition {
                 continue;
             }
@@ -117,7 +118,7 @@ pub(super) fn inspect(target: &Target) -> Result<Facts, String> {
             if dev != number {
                 return Err(format!(
                     "the sysfs entry {} is device {dev}, not {number}",
-                    sys.display()
+                    crate::ui::shown(sys)
                 ));
             }
         }

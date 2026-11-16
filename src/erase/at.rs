@@ -252,7 +252,7 @@ fn restore_name(
         Ok(()) => err,
         Err(left) => io::Error::new(
             err.kind(),
-            format!("{err}; the entry is left as {}", left.display()),
+            format!("{err}; the entry is left as {}", crate::ui::shown(&left)),
         ),
     }
 }
@@ -271,7 +271,7 @@ pub(super) fn keep_partly_overwritten(
         Ok(()) => io::Error::new(err.kind(), format!("{err}, the file is kept")),
         Err(left) => io::Error::new(
             err.kind(),
-            format!("{err}; the entry is left as {}", left.display()),
+            format!("{err}; the entry is left as {}", crate::ui::shown(&left)),
         ),
     }
 }

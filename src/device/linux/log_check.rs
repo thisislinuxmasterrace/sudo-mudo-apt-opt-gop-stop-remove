@@ -34,7 +34,7 @@ pub(super) fn check_log_location(
     targets: &[Target],
     states: &[Facts],
 ) -> Result<(), String> {
-    let shown = log.display();
+    let shown = crate::ui::shown(log);
     let dir = match log.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
@@ -59,26 +59,26 @@ pub(super) fn check_log_location(
     if !meta.file_type().is_block_device() {
         return Err(format!(
             "{shown}: the log is on {}, which is not a block device: choose a log on a disk or partition",
-            real.display()
+            crate::ui::shown(&real)
         ));
     }
     for (target, facts) in targets.iter().zip(states) {
         if nodes_of(target, facts).contains(&real) {
             return Err(format!(
                 "{shown}: the log would be on {}, choose another file",
-                target.shown.display()
+                crate::ui::shown(&target.shown)
             ));
         }
     }
     let name = real
         .file_name()
-        .ok_or_else(|| format!("{shown}: unexpected log device {}", real.display()))?;
+        .ok_or_else(|| format!("{shown}: unexpected log device {}", crate::ui::shown(&real)))?;
     let sys = fs::canonicalize(Path::new("/sys/class/block").join(name))
         .map_err(|err| format!("{shown}: {err}"))?;
     if !read_names(&sys_disk(&sys)?.join("slaves"))?.is_empty() {
         return Err(format!(
             "{shown}: the log is on {}, which is built on other devices (device-mapper, md): choose another file",
-            real.display()
+            crate::ui::shown(&real)
         ));
     }
     Ok(())

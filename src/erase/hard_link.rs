@@ -38,7 +38,7 @@ pub(super) fn check_hard_links(shown: &Path, hard_linked: bool, opts: &Options) 
         HardLinkRule::EraseWithWarning => {
             crate::ui::message!(
                 "{}: warning: hard-linked file under root, erasing it because --i-know-what-i-am-doing was given",
-                shown.display()
+                crate::ui::shown(shown)
             );
             Ok(())
         }
@@ -49,12 +49,13 @@ pub(super) fn check_hard_links(shown: &Path, hard_linked: bool, opts: &Options) 
 /// the refusal of `check_hard_links` for a file named on the command line, decided before the
 /// confirmation. a directory is not checked here: its files are checked when the walk reaches them.
 pub(crate) fn validate_hard_link(path: &Path, allow: bool) -> Result<(), String> {
-    let meta = fs::symlink_metadata(path).map_err(|err| format!("{}: {err}", path.display()))?;
+    let meta =
+        fs::symlink_metadata(path).map_err(|err| format!("{}: {err}", crate::ui::shown(path)))?;
     if !meta.file_type().is_file() {
         return Ok(());
     }
     match hard_link_rule(running_as_root(), link_count(&meta) > 1, allow) {
-        HardLinkRule::Refuse => Err(format!("{}: {HARD_LINK_REFUSAL}", path.display())),
+        HardLinkRule::Refuse => Err(format!("{}: {HARD_LINK_REFUSAL}", crate::ui::shown(path))),
         HardLinkRule::Erase | HardLinkRule::EraseWithWarning => Ok(()),
     }
 }

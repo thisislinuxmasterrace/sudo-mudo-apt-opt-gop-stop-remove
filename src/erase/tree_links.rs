@@ -103,6 +103,11 @@ fn collect(
             }
             let real = real.join(entry);
             let child = fstatat(&dir, name.as_c_str(), AtFlags::AT_SYMLINK_NOFOLLOW)?;
+            // the walk refuses protected directories and keeps them, so their names are not
+            // selected. the inventory runs only without the protected-path override.
+            if crate::safety::unix::check_walk_entry(&child, false).is_err() {
+                continue;
+            }
             if !is_boundary(&child, st, &real, mounts)? {
                 collect(
                     &dir, &name, &child, &real, &rel, excludes, mounts, seen, counts,

@@ -281,10 +281,25 @@ pub fn final_path_of(file: &File) -> io::Result<PathBuf> {
     Err(io::Error::other("the path of the file keeps changing"))
 }
 
-/// schedules `path` for deletion at the next reboot. needs administrator rights.
+/// schedules the entry at `path` for deletion at the next reboot. needs administrator rights. the
+/// full name comes from the entry itself, opened without following a link, so a link swapped in for
+/// the name is scheduled as a link, never its target.
 pub fn delete_on_reboot(path: &Path) -> io::Result<()> {
-    let canonical = fs::canonicalize(path)?;
-    move_file_delay_until_reboot(&wide_nul(canonical.as_os_str()))
+    let full = final_path_of(&open_for_query(path, false)?)?;
+    move_file_delay_until_reboot(&wide_nul(full.as_os_str()))
+}
+
+/// renames `from` to `to` by path and never replaces an existing entry at `to`.
+pub fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    let (from, to) = (wide_nul(from.as_os_str()), wide_nul(to.as_os_str()));
+    // safety: both names are nul-terminated and live for the call; flags 0 means no replacing
+    // and no copying across volumes.
+    let ok = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) };
+    if ok == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 /// a restart manager session, ended on drop.

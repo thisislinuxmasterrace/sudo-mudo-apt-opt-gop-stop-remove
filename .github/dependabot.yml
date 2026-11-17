@@ -12,7 +12,9 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
-    # actions are pinned to full commit shas with a version comment; dependabot bumps both. the
-    # toolchain versions (stable, the 1.88 msrv) are the `toolchain:` inputs, changed by hand.
+    # actions are pinned to full commit shas with a version comment; dependabot bumps both for
+    # tagged actions. dtolnay/rust-toolchain is pinned to a master commit, which dependabot does not
+    # follow: refresh it by hand. the toolchain versions (stable, the 1.88 msrv) are the
+    # `toolchain:` inputs, changed by hand.
     schedule:
       interval: weekly

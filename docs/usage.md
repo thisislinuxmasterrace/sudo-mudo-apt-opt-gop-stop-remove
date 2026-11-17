@@ -39,7 +39,7 @@ the confirmation lists the targets, a summary (counts, size, passes, and any ski
 
 with `-f` and no `--dry-run`, nothing is counted and no summary is shown: the notes come first, then the result. unix root runs still inspect a tree for internal hard links. the result names a single target and counts several; targets kept only because of `--exclude` are counted separately. on windows it says `processed`, because deletion may be queued for reboot.
 
-`-q` hides the progress line, the general notes and the success line. warnings about the given paths, errors and questions remain. `-v` prints each pass. `--log` keeps per-entry facts.
+`-q` hides the progress line, the general notes and the success line. warnings about the given paths, errors and questions remain. a storage warning shared by several paths is printed once, with the first path and the number of others (`a.txt and 22 more paths: ...`). `-v` prints each pass. `--log` keeps per-entry facts.
 
 on a terminal, headings are cyan, warnings yellow, errors red and results green. `NO_COLOR` (even empty) or `TERM=dumb` turns color off. redirected output, json and logs are always plain.
 
@@ -103,9 +103,9 @@ a second signal exits at once with code 130 and does not restore the name, so a 
 
 a file held open by another program is not erased by default.
 
-- `--kill-holders` closes the programs that hold the file. it asks first unless `-f` is given. the tool asks the windows restart manager to shut the holders down and forces it when they do not close (`RmForceShutdown`), so services among them are stopped too. only the programs shown in the question are closed: if a program that was not listed holds the file by then, nothing is closed (a listed program that has exited meanwhile does not matter), the file is kept and the run ends with exit code 4. if the question is declined, the file is not erased and the run ends with exit code 4.
+- `--kill-holders` closes the programs that hold the file. it asks first unless `-f` is given. the tool asks the windows restart manager to shut the holders down and forces it when they do not close (`RmForceShutdown`), so services among them are stopped too. the holders are listed again just before closing: if a program that was not shown in the question holds the file by then, nothing is closed (a listed program that has exited meanwhile does not matter), the file is kept and the run ends with exit code 4. that check and the closing are separate steps, so a program that opens the file in between can be closed too. if the question is declined, the file is not erased and the run ends with exit code 4.
 - after holders close, the overwrite uses the size of the file opened on retry.
 - ctrl+c during either windows question ends the wait for input and stops the operation before closing holders or scheduling reboot deletion. an interrupt observed after an answer also prevents the action; signal delivery and the action are not atomic.
 - if the file still cannot be deleted after its contents are erased, the tool asks whether to delete it at the next reboot. with `-f` nothing is scheduled and the file stays; a declined question leaves it in place too. both end with exit code 4.
 
-`--kill-holders` outside windows is an argument error (exit code 2). the lock scenarios have run on a windows ci runner and, in an earlier version, in a windows 11 virtual machine. they have not been tested on real windows hardware; see [verification limits](guarantees-and-limits.md#what-is-not-verified).
+`--kill-holders` outside windows is an argument error (exit code 2). the lock scenarios ran on a windows ci runner and in a windows 11 virtual machine with earlier versions; hosted runners now lack native sudo, so ci skips them, and the current handle-based erase is covered by windows unit tests only. they have not been tested on real windows hardware; see [verification limits](guarantees-and-limits.md#what-is-not-verified).

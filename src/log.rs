@@ -193,7 +193,7 @@ impl Log {
                 crate::ui::message!(
                     "{}: could not write the log {}: {err}{note}",
                     crate::NAME,
-                    self.path.display()
+                    crate::ui::shown(&self.path)
                 );
             }
         }
@@ -225,11 +225,14 @@ pub fn check_path(log: &Path, targets: &[PathBuf]) -> Result<(), String> {
     if fs::symlink_metadata(log).is_ok() {
         return Err(format!(
             "{}: the log file already exists, it is never overwritten",
-            log.display()
+            crate::ui::shown(log)
         ));
     }
     if log.file_name().is_none() {
-        return Err(format!("{}: the log needs a file name", log.display()));
+        return Err(format!(
+            "{}: the log needs a file name",
+            crate::ui::shown(log)
+        ));
     }
     check_location(log, targets)
 }
@@ -238,19 +241,19 @@ pub fn check_path(log: &Path, targets: &[PathBuf]) -> Result<(), String> {
 /// directories are compared by identity, so `./`, extra `/` and letter case do not get around it.
 /// a target that is a link is erased as a link, nothing behind it is touched, so it is not compared.
 pub fn check_location(log: &Path, targets: &[PathBuf]) -> Result<(), String> {
-    let shown = log.display();
+    let shown = crate::ui::shown(log);
     let chain = log_dir_chain(log).map_err(|err| format!("{shown}: {err}"))?;
     for target in targets {
-        let meta =
-            fs::symlink_metadata(target).map_err(|err| format!("{}: {err}", target.display()))?;
+        let meta = fs::symlink_metadata(target)
+            .map_err(|err| format!("{}: {err}", crate::ui::shown(target)))?;
         if meta.file_type().is_symlink() || !meta.is_dir() {
             continue;
         }
-        let id = identity(target).map_err(|err| format!("{}: {err}", target.display()))?;
+        let id = identity(target).map_err(|err| format!("{}: {err}", crate::ui::shown(target)))?;
         if chain.contains(&id) {
             return Err(format!(
                 "{shown}: the log would be erased with {}, choose another file",
-                target.display()
+                crate::ui::shown(target)
             ));
         }
     }

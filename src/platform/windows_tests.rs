@@ -9,6 +9,25 @@ fn holder(pid: u32, start: u64) -> Holder {
 }
 
 #[test]
+fn rename_no_replace_never_replaces_an_existing_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let (from, taken, free) = (
+        dir.path().join("from"),
+        dir.path().join("taken"),
+        dir.path().join("free"),
+    );
+    fs::write(&from, b"from").unwrap();
+    fs::write(&taken, b"taken").unwrap();
+
+    assert!(rename_no_replace(&from, &taken).is_err());
+    assert_eq!(fs::read(&taken).unwrap(), b"taken");
+
+    rename_no_replace(&from, &free).unwrap();
+    assert_eq!(fs::read(&free).unwrap(), b"from");
+    assert!(!from.exists());
+}
+
+#[test]
 fn holders_may_only_shrink_matched_by_pid_and_start_time() {
     let shown = [holder(1, 10), holder(2, 20)];
 

@@ -75,7 +75,7 @@ the drive's own erase works on the whole disk and destroys everything on it, the
 
 ## what is not verified
 
-windows checks cover hosted ci and an isolated windows 11 vm: locks, verification/logging, reparse points, cancellation and disposable fat32 volumes. a reboot-deletion sentinel disappeared after reboot; the complete interactive reboot fallback remains unverified. these are not hardware tests.
+windows checks cover hosted ci and an isolated windows 11 vm: locks, verification/logging, reparse points, cancellation and disposable fat32 volumes, with earlier versions. hosted runners lack native sudo, so the cli lock scenarios are skipped there; the rename and delete through the open handle are covered by windows unit tests, not by a cli run. a reboot-deletion sentinel disappeared after reboot; the complete interactive reboot fallback remains unverified. these are not hardware tests.
 
 still unverified: real block-device erasure; antivirus/cloud-provider behavior; refs and compressed ntfs; windows log identity and volume mount points; macos bind mounts and mount-query failures on hardware; bsd; real-terminal progress and verification throughput.
 

@@ -108,8 +108,29 @@ pub(crate) fn assessment_fs_reason(name: &str) -> Option<&'static str> {
 }
 
 /// warnings for every path that lives on a copy-on-write, network, fuse or unrecognized filesystem.
+/// one line per distinct warning: many targets on one disk would otherwise repeat the same line, so
+/// a line names its first path and counts the others.
 pub fn warnings(paths: &[PathBuf]) -> Vec<String> {
-    paths.iter().flat_map(|path| path_warnings(path)).collect()
+    let mut grouped: Vec<(String, &Path, usize)> = Vec::new();
+    for path in paths {
+        for message in path_warnings(path) {
+            match grouped.iter_mut().find(|(seen, ..)| *seen == message) {
+                Some((_, _, count)) => *count += 1,
+                None => grouped.push((message, path, 1)),
+            }
+        }
+    }
+    grouped
+        .into_iter()
+        .map(|(message, first, count)| {
+            let first = crate::ui::shown(first);
+            match count - 1 {
+                0 => format!("{first}: {message}"),
+                1 => format!("{first} and 1 more path: {message}"),
+                more => format!("{first} and {more} more paths: {message}"),
+            }
+        })
+        .collect()
 }
 
 const REFUSE_NETWORK: &str =
@@ -151,26 +172,26 @@ pub(crate) fn opened_wipe_refusal(file: &std::fs::File) -> Option<&'static str> 
     }
 }
 
+/// the warnings for one path, without the path.
 fn path_warnings(path: &Path) -> Vec<String> {
     let mut found = Vec::new();
     // a link is erased as a link: the storage that matters is the one that holds the link itself.
     let holder = holder_of(path);
     let holder = holder.as_path();
     match filesystem_name(holder) {
-        Some(name) => found.extend(fs_warning(path, &name)),
-        None => found.push(unreadable_warning(path)),
+        Some(name) => found.extend(fs_warning(&name)),
+        None => found.push(UNREADABLE.to_owned()),
     }
     if is_flash(holder) {
-        found.push(format!(
-            "{}: on a flash (non-rotational) device, the device may keep old data in blocks it remapped",
-            crate::ui::shown(path)
-        ));
+        found.push(
+            "on a flash (non-rotational) device, the device may keep old data in blocks it remapped"
+                .to_owned(),
+        );
     }
     if remote_drive(holder) {
-        found.push(format!(
-            "{}: remote drive, overwriting happens on the server, which may keep copies",
-            crate::ui::shown(path)
-        ));
+        found.push(
+            "remote drive, overwriting happens on the server, which may keep copies".to_owned(),
+        );
     }
     found
 }
@@ -187,15 +208,10 @@ fn holder_of(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
-/// the type of `path` could not be read: statfs failed, or a fuse mount had no mountinfo entry.
-fn unreadable_warning(path: &Path) -> String {
-    format!(
-        "{}: could not read the filesystem type, it may be a remote one",
-        crate::ui::shown(path)
-    )
-}
+/// the type of a path could not be read: statfs failed, or a fuse mount had no mountinfo entry.
+const UNREADABLE: &str = "could not read the filesystem type, it may be a remote one";
 
-fn fs_warning(path: &Path, fs_name: &str) -> Option<String> {
+fn fs_warning(fs_name: &str) -> Option<String> {
     let message = match classify(fs_name) {
         Kind::Local => return None,
         Kind::CopyOnWrite if fs_name == "overlay" => "overlay filesystem: a write to a file from a lower layer copies it up first, and the lower copy is never overwritten".to_owned(),
@@ -212,7 +228,7 @@ fn fs_warning(path: &Path, fs_name: &str) -> Option<String> {
             "{fs_name} is a fuse or unrecognized filesystem, overwriting may happen on a remote server"
         ),
     };
-    Some(format!("{}: {message}", crate::ui::shown(path)))
+    Some(message)
 }
 
 #[cfg(test)]
@@ -248,13 +264,9 @@ mod tests {
 
     #[test]
     fn memory_and_overlay_get_their_own_wording() {
-        let path = Path::new("/run/x");
+        assert!(fs_warning("tmpfs").is_some_and(|w| w.contains("old pages may remain in swap")));
         assert!(
-            fs_warning(path, "tmpfs").is_some_and(|w| w.contains("old pages may remain in swap"))
-        );
-        assert!(
-            fs_warning(path, "overlay")
-                .is_some_and(|w| w.contains("lower copy is never overwritten"))
+            fs_warning("overlay").is_some_and(|w| w.contains("lower copy is never overwritten"))
         );
         assert!(assessment_fs_reason("ramfs").is_some_and(|r| r.contains("swap")));
         assert!(assessment_fs_reason("overlay").is_some_and(|r| r.contains("copies it up")));
@@ -263,9 +275,34 @@ mod tests {
                 .is_some_and(|r| r.contains("copy-on-write or log-structured"))
         );
         assert!(
-            fs_warning(path, "nilfs2")
-                .is_some_and(|w| w.contains("copy-on-write or log-structured"))
+            fs_warning("nilfs2").is_some_and(|w| w.contains("copy-on-write or log-structured"))
         );
+    }
+
+    #[test]
+    fn paths_with_the_same_warning_share_one_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths: Vec<_> = (0..3).map(|n| dir.path().join(n.to_string())).collect();
+        for path in &paths {
+            std::fs::write(path, b"x").unwrap();
+        }
+
+        let one = warnings(&paths[..1]);
+        let all = warnings(&paths);
+
+        // whatever the temp directory's storage is, three files on it get the same lines.
+        assert_eq!(one.len(), all.len());
+        let first = crate::ui::shown(&paths[0]);
+        for (single, grouped) in one.iter().zip(&all) {
+            let message = single.strip_prefix(&format!("{first}: ")).unwrap();
+            assert_eq!(*grouped, format!("{first} and 2 more paths: {message}"));
+        }
+        if let Some(line) = warnings(&paths[..2]).first() {
+            assert!(
+                line.starts_with(&format!("{first} and 1 more path: ")),
+                "{line}"
+            );
+        }
     }
 
     #[test]
@@ -337,18 +374,13 @@ mod tests {
 
     #[test]
     fn warns_about_network_and_fuse_but_not_local() {
-        let path = Path::new("/mnt/share/file");
-        assert!(fs_warning(path, "ceph").is_some_and(|w| w.contains("is a network filesystem")));
+        assert!(fs_warning("ceph").is_some_and(|w| w.contains("is a network filesystem")));
         assert!(
-            fs_warning(path, "fuse.sshfs")
+            fs_warning("fuse.sshfs")
                 .is_some_and(|w| w.contains("is a fuse or unrecognized filesystem"))
         );
-        assert!(fs_warning(path, "btrfs").is_some_and(|w| w.contains("copy-on-write")));
-        assert!(fs_warning(path, "ext4").is_none());
-        assert!(
-            unreadable_warning(path)
-                .contains("could not read the filesystem type, it may be a remote one")
-        );
+        assert!(fs_warning("btrfs").is_some_and(|w| w.contains("copy-on-write")));
+        assert!(fs_warning("ext4").is_none());
     }
 
     #[cfg(unix)]

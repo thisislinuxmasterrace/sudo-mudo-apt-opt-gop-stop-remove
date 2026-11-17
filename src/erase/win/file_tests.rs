@@ -151,6 +151,10 @@ fn path_delete_refuses_a_file_that_is_not_the_erased_one() {
     let id = windows::file_id(&stranger, true).unwrap();
     remove_entry(&stranger, id, &options(), &mut keep).unwrap();
     assert!(!stranger.exists());
+
+    // nothing at the name to check: nothing is deleted or scheduled.
+    let err = remove_entry(&stranger, id, &options(), &mut keep).unwrap_err();
+    assert!(err.to_string().contains("could not check"), "{err}");
 }
 
 #[test]

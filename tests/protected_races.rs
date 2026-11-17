@@ -122,6 +122,25 @@ fn recursive_ancestor_keeps_protected_home_unless_overridden() {
 }
 
 #[test]
+fn hard_link_into_a_protected_home_below_the_tree_is_external() {
+    let dir = tempfile::tempdir().unwrap();
+    let tree = dir.path().join("tree");
+    let home = tree.join("home");
+    fs::create_dir_all(&home).unwrap();
+    fs::write(home.join("shared"), b"keep").unwrap();
+    fs::hard_link(home.join("shared"), tree.join("linked")).unwrap();
+    let mut command = command(&home);
+    command.args(["-r", "-f", "--zero"]).arg(&tree);
+
+    let output = command.output().unwrap();
+
+    // the home is kept, so its name is not selected: the other name is an external link and stays.
+    common::assert_exit(&output, 4);
+    assert_eq!(fs::read(home.join("shared")).unwrap(), b"keep");
+    assert_eq!(fs::read(tree.join("linked")).unwrap(), b"keep");
+}
+
+#[test]
 fn renamed_home_stays_protected_after_confirmation() {
     let dir = tempfile::tempdir().unwrap();
     let tree = dir.path().join("tree");

@@ -256,21 +256,31 @@ fn is_locked(err: &io::Error) -> bool {
 }
 
 /// deletes the entry by path, when the open handle could not: posix delete first (removes the name
-/// even while other handles are open), then rename and delete, then deletion at the next reboot
-/// (asked first; never with `-f`). the handle opened for the delete must be the erased file, `expected`;
-/// anything else at the path is left alone.
+/// when the handle closes, even while other handles are open), then rename and delete, then deletion
+/// at the next reboot (asked first; never with `-f`). the entry at the path, not a link's target, must
+/// be the erased file, `expected`; anything else is left alone. the later steps go by path, so a swap
+/// between this check and them is not prevented.
 fn remove_entry(
     path: &Path,
     expected: FileId,
     opts: &Options,
     keep: &mut ReadOnly,
 ) -> io::Result<()> {
+    match windows::file_id(path, false) {
+        Ok(id) if id == expected => {}
+        Ok(_) => return Err(not_the_erased_file(keep)),
+        Err(err) => {
+            return Err(io::Error::new(
+                err.kind(),
+                format!(
+                    "{err}; could not check that the entry at this name is the erased file, it is kept"
+                ),
+            ));
+        }
+    }
     if let Ok(handle) = windows::open_for_delete(path) {
         if windows::file_id_of(&handle).ok() != Some(expected) {
-            keep.done();
-            return Err(io::Error::other(
-                "the entry at this name is not the file that was erased, it is kept",
-            ));
+            return Err(not_the_erased_file(keep));
         }
         if windows::posix_delete(&handle).is_ok() {
             return Ok(());
@@ -286,9 +296,10 @@ fn remove_entry(
             if opts.force {
                 Ok(false)
             } else {
-                prompt::ask_interruptible(
-                    "file is still in use and cannot be deleted now (contents are already erased). schedule deletion at next reboot?",
-                )
+                prompt::ask_interruptible(&format!(
+                    "{}: file is still in use and cannot be deleted now (contents are already erased). schedule deletion at next reboot?",
+                    crate::ui::shown(path)
+                ))
             }
         },
         check_interrupted,
@@ -299,6 +310,12 @@ fn remove_entry(
         )));
     }
     Ok(())
+}
+
+/// another file took the name: it is not touched, and it keeps its own read-only flag.
+fn not_the_erased_file(keep: &mut ReadOnly) -> io::Error {
+    keep.done();
+    io::Error::other("the entry at this name is not the file that was erased, it is kept")
 }
 
 /// clears the read-only flag so the entry can be overwritten and renamed. returns whether it was set.
@@ -349,8 +366,9 @@ pub(super) fn unlink_with_random_name(path: &Path, is_dir: bool) -> io::Result<(
     match removed {
         Ok(()) => Ok(()),
         Err(remove_err) => {
-            // put the name back; if that fails, report where the entry is.
-            match fs::rename(&hidden, path) {
+            // put the name back, never over an entry that took it meanwhile; if that fails, report
+            // where the entry is.
+            match windows::rename_no_replace(&hidden, path) {
                 Ok(()) => Err(remove_err),
                 Err(_) => Err(io::Error::other(format!(
                     "{remove_err}; the entry is left as {}",

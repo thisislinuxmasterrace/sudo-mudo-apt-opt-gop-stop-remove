@@ -214,7 +214,7 @@ fn space_given_back(
     opts: &Options,
     progress: &mut Progress,
 ) -> io::Result<()> {
-    let back = release::wait_for_space(
+    let waited = release::wait_for_space(
         before,
         || dir.free_bytes(),
         || {
@@ -227,7 +227,14 @@ fn space_given_back(
         },
         release::POLL,
         release::TIMEOUT,
-    )?;
+    );
+    let back = match waited {
+        // every pass is done: ctrl+c only ends the wait, the wipe itself is complete.
+        Err(err) if err.kind() == io::ErrorKind::Interrupted && pass == opts.passes => {
+            return Ok(());
+        }
+        result => result?,
+    };
     if !back {
         let effect = if pass < opts.passes {
             "the next pass may fill less"

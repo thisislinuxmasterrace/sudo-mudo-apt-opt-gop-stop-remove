@@ -42,7 +42,7 @@ the code has three erase paths: files and trees (`src/erase/`), whole block devi
 6. print the notes, ask the confirmation (strict where needed), install the interrupt handlers, create the log.
 7. erase each selection (`erase::erase_selected` on unix, `erase::erase_path` on windows), collecting each entry's advisory facts before rename or deletion for the json log; map the outcome to an exit code. text prints risks once and keeps per-entry errors. unix root runs inventory internal hard links (`erase/tree_links.rs`) through checked directory descriptors, unlink redundant selected names, then overwrite the last name only after a fresh handle link-count check.
 
-`run_wipe_free` retains and validates the directory, refuses network and unknown filesystems, shows the space, asks, installs the handlers and calls `wipe::wipe_selected`. unix fill files use `openat` and `unlinkat` on the retained directory, with protection and filesystem checks before each creation.
+`run_wipe_free` retains and validates the directory, refuses network, memory and unknown filesystems, shows the space, asks, installs the handlers and calls `wipe::wipe_selected`. unix fill files use `openat` and `unlinkat` on the retained directory, with protection and filesystem checks before each creation.
 
 ## invariants
 

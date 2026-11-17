@@ -11,9 +11,10 @@ all notable changes are listed here. the format follows [keep a changelog](https
 - linux medium: a rotational report on usb, removable or virtual disks is unknown, so such devices are refused unless `--i-know-what-i-am-doing`. bcachefs joins btrfs and zfs in the multi-device refusal.
 - unix protects `/home`, `/Users`, `/root`, `/srv`, `/mnt`, `/media`, `/run` as exact erase targets and `/efi` with its subtree; windows protects `%SystemDrive%\Users`. only `/` is refused as a filesystem root; `--wipe-free` accepts other mount points.
 - a file that changes size during an overwrite is kept under its name with exit code 4.
-- windows renames a file to a random hidden name through its open handle before the overwrite and deletes it through the same handle (posix delete, then classic delete-on-close for fat and old windows); the path-based delete is only a fallback and checks that it opens the erased file.
+- windows renames a file to a random hidden name through its open handle before the overwrite and deletes it through the same handle (posix delete, then classic delete-on-close for fat and old windows); the path-based delete is only a fallback and first checks that the entry at the name, not a link's target, is the erased file. the reboot question names the file, and deletion at reboot never follows a link.
 - windows reports hard-link counts in the summary; the root hard-link refusal stays unix-only.
 - names with control characters or bidi overrides are escaped in human output.
+- a storage warning shared by several paths is printed once, naming the first path and counting the others.
 - advisory git queries run as the invoking user; a repository owned by someone else is "could not tell".
 
 ### fixed
@@ -21,6 +22,7 @@ all notable changes are listed here. the format follows [keep a changelog](https
 - `--wipe-free` with more than one pass no longer fails on zfs with "no space left on device": each pass waits, up to 60 seconds, until the filesystem has freed the space of the previous one.
 - unix erase retains selected parent directories across confirmation, so parent symlink changes cannot redirect it; replaced targets are kept.
 - recursive unix erase preserves protected directories, including home, when selected through an ancestor, also with `-f`.
+- a hard link from a recursive tree into a protected directory below it counts as external: the name in the tree is kept, not removed without overwriting.
 - unix free-space wiping creates and unlinks fill files through the retained directory, with opened-directory protection and filesystem checks.
 - `--explain` on a device no longer claims that it gives no advice before printing the advice.
 - copy detection makes relative paths absolute, so the dry run, `--explain` and the log agree.

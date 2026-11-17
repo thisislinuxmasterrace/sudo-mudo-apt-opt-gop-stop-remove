@@ -16,7 +16,7 @@ run the tag and publishing commands from a machine authenticated with github, cr
 2. finish `CHANGELOG.md`: the section `## [X.Y.Z] - <date>` must exist with the notes (they become the github release text). keep an empty `## [Unreleased]` above it and update the link references at the bottom. preview with `.github/scripts/release-notes.sh vX.Y.Z`.
 3. check the install section of `README.md`: it lists only channels that work after the release.
 4. run the checks: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, the non-device tests in an isolated machine using the [sudo test runner](docs/development.md#checks), the msrv check (`cargo +1.88.0 check --all-targets --locked`) and `cargo package --locked`.
-5. commit as `release: X.Y.Z`, push `main`, and wait until `ci` and `windows locks` are green. hosted windows runners have no native sudo, so `windows locks` skips its lock scenarios with a warning; run `tests/windows/locks.ps1` in a windows vm with sudo when the windows erase code changed.
+5. commit as `release: X.Y.Z`, push `main`, and wait until `ci` and `windows locks` are green. hosted windows runners have no native sudo, so `windows locks` skips its lock scenarios with a warning; run them with `tests/windows/vm/run.sh` (see [development](docs/development.md#windows-vm)) and expect `all windows checks passed`.
 6. optionally run `gh workflow run release.yml --ref main` to validate seven target archives and packaging without a release. inspect the artifacts; `packaging-validation` uses fixture versions and urls. manual runs check `Unreleased`, or the cargo version's notes if it is empty.
 
 ## 2. github release

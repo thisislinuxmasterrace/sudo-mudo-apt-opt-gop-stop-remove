@@ -91,9 +91,19 @@ function Invoke-VolumeCheck([int]$SizeMiB) {
         Write-Output "free-after=$freeAfter sentinel-preserved=$($before -eq $after) fill-entries=$($remaining.Count)"
         if ($before -ne $after -or $remaining.Count -ne 0) { throw 'sentinel or cleanup check failed' }
         if ($freeAfter -lt ($freeBefore - 2MB)) { throw 'free space was not restored' }
-        # sampling can miss the final writes; leave a margin for the polling interval.
-        if ($SizeMiB -eq 5120 -and ($maxFillFiles -lt 2 -or $minFree -gt 64MB)) {
-            throw "rollover or volume fill was not observed: files=$maxFillFiles min-free=$minFree"
+        # the sampling above can miss a short-lived second file, so the proof is the amount the tool
+        # wrote: one fat32 file holds less than 4 gib, and a full pass writes about the free space.
+        # the printed amount has one decimal, hence the margin.
+        $done = Select-String -LiteralPath $output, $errors -Pattern 'pass 1/1 done: ([0-9.]+) (gib|mib) written' |
+            Select-Object -First 1
+        if (-not $done) { throw 'the pass total is missing from the output' }
+        $unit = if ($done.Matches[0].Groups[2].Value -eq 'gib') { 1GB } else { 1MB }
+        $written = [double]::Parse($done.Matches[0].Groups[1].Value, [cultureinfo]::InvariantCulture) * $unit
+        if ($written -lt ($freeBefore - 128MB)) {
+            throw "the volume was not filled: written=$written free-before=$freeBefore"
+        }
+        if ($SizeMiB -eq 5120 -and $written -le (4GB - 1MB)) {
+            throw "no rollover to a second file: written=$written"
         }
         if ($exitCode -ne 0) {
             throw "wipe failed with exit $exitCode"

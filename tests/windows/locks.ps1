@@ -79,7 +79,7 @@ function Start-Holder([string]$Path, [System.IO.FileShare]$Share, [string]$Name)
 
     $template = @'
 $ErrorActionPreference = 'Stop'
-$fs = [System.IO.FileStream]::new('__PATH__', [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::__SHARE__)
+$fs = [System.IO.FileStream]::new('__PATH__', [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]'__SHARE__')
 New-Item -ItemType File -Path '__READY__' | Out-Null
 Start-Sleep -Seconds 600
 '@
@@ -173,6 +173,41 @@ try {
             Add-Result $Name 'PASS' 'exit 0, file removed, holder exited, log matches'
         } else {
             Add-Result $Name 'FAIL' "exit $($result.ExitCode), file removed: $gone, holder exited: $holderExited, log matches: $logOk"
+        }
+    }
+
+    Invoke-Scenario '5. holder that shares delete, plain erase' {
+        $file = New-RandomFile 'share-delete.bin'
+        $holder = Start-Holder -Path $file -Share ([System.IO.FileShare]'ReadWrite, Delete') -Name 'share-delete'
+        $result = Invoke-Binary @('-f', '--verify', $file)
+        Show-Result $Name $result
+        # the rename and the posix delete go through the erase handle; the open holder does not keep the name.
+        $gone = -not (Test-Path -LiteralPath $file)
+        $holderAlive = -not $holder.HasExited
+        $leftovers = @(Get-ChildItem -LiteralPath $scratch -Force -File |
+            Where-Object Name -match '^\.[0-9a-f]{16}$').Count
+        if ($result.ExitCode -eq 0 -and $gone -and $holderAlive -and $leftovers -eq 0) {
+            Add-Result $Name 'PASS' 'exit 0, name removed while the holder keeps its handle, no hidden entry left'
+        } else {
+            Add-Result $Name 'FAIL' "exit $($result.ExitCode), file removed: $gone, holder alive: $holderAlive, hidden entries: $leftovers"
+        }
+    }
+
+    Invoke-Scenario '6. read-only files in a tree' {
+        $tree = Join-Path $scratch 'tree'
+        New-Item -ItemType Directory -Path (Join-Path $tree 'sub') | Out-Null
+        foreach ($entry in @('a.bin', 'sub\b.bin')) {
+            $path = Join-Path $tree $entry
+            [System.IO.File]::WriteAllBytes($path, [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(4096))
+            Set-ItemProperty -LiteralPath $path -Name IsReadOnly -Value $true
+        }
+        $result = Invoke-Binary @('-r', '-f', $tree)
+        Show-Result $Name $result
+        $gone = -not (Test-Path -LiteralPath $tree)
+        if ($result.ExitCode -eq 0 -and $gone) {
+            Add-Result $Name 'PASS' 'exit 0, tree removed'
+        } else {
+            Add-Result $Name 'FAIL' "exit $($result.ExitCode), tree removed: $gone"
         }
     }
 }

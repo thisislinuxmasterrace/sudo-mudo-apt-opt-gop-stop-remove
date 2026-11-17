@@ -8,7 +8,7 @@ when you really want to nuke the shit out of some files
 
 ## install
 
-download a [release archive](https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases/tag/v0.2.0), or install with a package manager:
+download a [release archive](https://github.com/thisislinuxmasterrace/sudo-mudo-apt-opt-gop-stop-remove/releases/tag/v0.2.1), or install with a package manager:
 
 ```sh
 cargo install sudo-mudo-apt-opt-gop-stop-remove

@@ -45,3 +45,9 @@ windows-sys = { version = "0.61", features = [
 
 [target."cfg(windows)".dev-dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_IO"] }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

@@ -1,0 +1,8 @@
+[profile.vm]
+default-filter = 'not test(device)'
+fail-fast = false
+
+[[profile.vm.overrides]]
+# start the large directory fixtures before the small tests fill the queue.
+filter = 'binary(=strict_confirm) | test(=recursive_output_does_not_grow_with_successful_entries)'
+priority = 50

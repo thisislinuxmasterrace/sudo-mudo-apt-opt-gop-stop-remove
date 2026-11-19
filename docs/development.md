@@ -32,6 +32,20 @@ tests erase data. run them in a throwaway container or vm, never against real da
 
 windows hosted ci runs unit and direct-invocation refusal tests. positive cli integration needs native sudo, which hosted runners lack: run it in a [windows vm](#windows-vm). no tests erase a real block device: ci tests device functions and refusals only.
 
+### fast linux vm checks
+
+keep the default `target/` warm between checks in the same checkout. cargo enables incremental compilation in development and test builds by default. these builds keep file and line numbers for backtraces in project code and omit dependency debuginfo.
+
+with `cargo-nextest` installed, run the non-device suite on an isolated linux vm where `/var/tmp` is on ext4:
+
+```sh
+host=$(rustc -vV | sed -n 's/^host: //p')
+cargo nextest run --all-targets --locked --profile vm \
+  --config "target.$host.runner=['sudo','-n','TMPDIR=/var/tmp','CI=1']"
+```
+
+the runner sets the temp directory after sudo and makes mount setup failures fail the tests. the vm profile skips test names containing `device` and starts the large directory fixtures first.
+
 ## windows vm
 
 `tests/windows/vm/run.sh` runs the windows checks in a local windows 11 vm under native sudo: the unit and invocation tests that windows ci runs, the locked-file scenarios (`tests/windows/locks.ps1`) and the fat32 volume checks (`tests/windows/fat32.ps1`). it cross-builds with the `x86_64-pc-windows-gnu` target (needs mingw-w64 and `jq`), copies the binaries into the vm's shared folder and prints the vm's output; the exit code is 0 when every check passed. results are kept in `<shared>/results/`.
